@@ -35,6 +35,12 @@ export default function SignupPage() {
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email,
                 password,
+                options: {
+                    data: {
+                        full_name: fullName.trim(),
+                        phone_number: phoneNumber.trim(),
+                    },
+                },
             });
 
             if (authError) {
@@ -49,24 +55,8 @@ export default function SignupPage() {
                 return;
             }
 
-            // 2. Create user profile in users table
-            const { error: profileError } = await supabase
-                .from('users')
-                .insert([
-                    {
-                        id: authData.user.id,
-                        email,
-                        full_name: fullName,
-                        phone_number: phoneNumber,
-                        role: 'alumni',
-                    },
-                ]);
-
-            if (profileError) {
-                setError(profileError.message);
-                setLoading(false);
-                return;
-            }
+            // The database trigger creates a pending profile from auth metadata.
+            // This also works when email confirmation is enabled and no session exists yet.
 
             setSuccess('Account created! Redirecting...');
             setTimeout(() => {
