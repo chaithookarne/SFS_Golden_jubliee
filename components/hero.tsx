@@ -11,7 +11,7 @@ export default function Hero() {
                 <img
                     alt="St. Francis de Sales High School Building Campus"
                     className="w-full h-full object-cover object-center sm:object-right transform scale-105"
-                    src="/images/campus-hero.jpg"
+                    src="/images/assembly.jpg"
                 />
             </div>
 
