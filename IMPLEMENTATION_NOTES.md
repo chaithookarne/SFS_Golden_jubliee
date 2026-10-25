@@ -23,3 +23,11 @@ The connected Vercel account/team sfs currently lists no projects, and the expec
 
 ## Local validation
 npm ci timed out in this environment. npm run type-check could not complete because the local TypeScript dependency installation is incomplete. Run npm ci, npm run type-check, and npm run build in a connected development environment before deployment.
+
+## Auth model (updated)
+- Alumni signup/login is **table-based** (`public.alumni_accounts` + httpOnly session cookie).
+- No per-alumnus Supabase Auth users; confirm-email is not used for alumni.
+- Required server env: `AUTH_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`.
+- Apply migration `supabase/migrations/20261025_alumni_accounts.sql` in the SQL Editor.
+- First admin (after signup):
+  `update public.alumni_accounts set role='admin', member_status='verified' where email='YOUR_EMAIL';`

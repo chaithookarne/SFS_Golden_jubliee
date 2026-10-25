@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -12,7 +11,6 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const router = useRouter();
-    const supabase = createClient();
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -20,13 +18,14 @@ export default function LoginPage() {
         setError('');
 
         try {
-            const { error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ email, password }),
             });
-
-            if (error) {
-                setError(error.message);
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(payload.error || 'Invalid email or password');
                 setLoading(false);
                 return;
             }

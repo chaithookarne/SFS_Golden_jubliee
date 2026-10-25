@@ -5,28 +5,34 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
 
 export default function NavBar() {
-    const [user, setUser] = useState<any>(null);
+    const [user, setUser] = useState<{ email: string } | null>(null);
     const [loading, setLoading] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const router = useRouter();
-    const supabase = createClient();
 
     useEffect(() => {
         async function checkAuth() {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            setUser(user);
-            setLoading(false);
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    const me = await res.json();
+                    setUser({ email: me.email });
+                } else {
+                    setUser(null);
+                }
+            } catch {
+                setUser(null);
+            } finally {
+                setLoading(false);
+            }
         }
         checkAuth();
     }, []);
 
     async function handleLogout() {
-        await supabase.auth.signOut();
+        await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setMobileMenuOpen(false);
         router.push('/');

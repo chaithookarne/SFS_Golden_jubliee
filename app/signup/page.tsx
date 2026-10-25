@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase';
 
 export default function SignupPage() {
     const [email, setEmail] = useState('');
@@ -16,7 +15,6 @@ export default function SignupPage() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const router = useRouter();
-    const supabase = createClient();
 
     async function handleSignup(e: React.FormEvent) {
         e.preventDefault();
@@ -31,32 +29,22 @@ export default function SignupPage() {
         }
 
         try {
-            // 1. Create auth user
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: fullName.trim(),
-                        phone_number: phoneNumber.trim(),
-                    },
-                },
+            const res = await fetch('/api/auth/signup', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    fullName: fullName.trim(),
+                    phoneNumber: phoneNumber.trim(),
+                }),
             });
-
-            if (authError) {
-                setError(authError.message);
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(payload.error || 'Failed to create account');
                 setLoading(false);
                 return;
             }
-
-            if (!authData.user) {
-                setError('Failed to create account');
-                setLoading(false);
-                return;
-            }
-
-            // The database trigger creates a pending profile from auth metadata.
-            // This also works when email confirmation is enabled and no session exists yet.
 
             setSuccess('Account created! Redirecting...');
             setTimeout(() => {
