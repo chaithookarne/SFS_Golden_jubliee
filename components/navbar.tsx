@@ -75,6 +75,12 @@ export default function NavBar() {
 
                     <div className="h-5 w-px bg-outline-variant"></div>
 
+                    {!loading && user && (
+                        <Link href="/member" className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-primary hover:bg-surface-container transition-colors">
+                            Alumni Portal
+                        </Link>
+                    )}
+
                     {!loading && !user ? (
                         <>
                             <Link
@@ -153,6 +159,9 @@ export default function NavBar() {
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2 text-center">
+                            <Link href="/member" onClick={() => setMobileMenuOpen(false)} className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider bg-surface-container text-primary">
+                                Alumni Portal
+                            </Link>
                             <span className="text-label-sm text-on-surface-variant truncate py-1">
                                 {user?.email}
                             </span>
