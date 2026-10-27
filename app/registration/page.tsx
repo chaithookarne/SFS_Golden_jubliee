@@ -26,6 +26,7 @@ import {
     validateRegistrationCost,
     type EventPricing,
     type FoodPreference,
+    type GuestChoice,
 } from '@/lib/registration';
 import { amountDuePaise } from '@/lib/events/balance';
 import { chooseRegistrationEvent, registrationPath } from '@/lib/events/choose-event';
@@ -68,6 +69,18 @@ interface PreRegistrationData {
     match_type: 'exact' | 'phone_only';
 }
 
+const DEFAULT_GUEST: GuestChoice = { preference: 'veg', lunch: false, dinner: false };
+
+function resizeGuests(guests: GuestChoice[], n: number): GuestChoice[] {
+    const size = partySize(n);
+    if (guests.length === size) return guests;
+    if (guests.length > size) return guests.slice(0, size);
+    return [
+        ...guests,
+        ...Array.from({ length: size - guests.length }, () => ({ ...DEFAULT_GUEST })),
+    ];
+}
+
 interface FormData {
     phone_number: string;
     full_name: string;
@@ -83,6 +96,7 @@ interface FormData {
     lunch: boolean;
     dinner: boolean;
     attending: boolean;
+    guests: GuestChoice[];
 }
 
 export default function RegistrationPage() {
@@ -123,6 +137,7 @@ function RegistrationPageInner() {
         lunch: false,
         dinner: false,
         attending: true,
+        guests: [{ ...DEFAULT_GUEST }],
     });
     const [amountPaid, setAmountPaid] = useState(0);
     const [registrationId, setRegistrationId] = useState<string | null>(null);
@@ -279,12 +294,13 @@ function RegistrationPageInner() {
                     setCurrentStep('success');
                 }
                 const loadedChoices = {
-                    number_of_guests: partySize(merged.number_of_guests),
+                    number_of_guests: merged.guests.length,
                     food_preference: merged.food_preference,
                     parking_needed: merged.parking_needed,
                     lunch: merged.lunch,
                     dinner: merged.dinner,
                     attending: merged.attending,
+                    guests: merged.guests,
                 };
                 setSavedFingerprint(
                     choicesFingerprint({
@@ -426,24 +442,18 @@ function RegistrationPageInner() {
         }
     }
 
-    const wantsMeals = formData.food_preference !== 'none';
     const costBreakdown = getEventCostBreakdown(eventPricing, {
-        numberOfGuests: formData.number_of_guests,
-        lunch: wantsMeals && formData.lunch,
-        dinner: wantsMeals && formData.dinner,
+        guests: formData.guests,
         parkingNeeded: formData.parking_needed,
-        foodPreference: formData.food_preference,
     });
     const totalCost = costBreakdown.totalCost;
 
     function choicesFingerprint(data: FormData) {
         return [
-            data.number_of_guests,
-            data.lunch,
-            data.dinner,
+            data.guests.length,
             data.parking_needed,
-            data.food_preference,
             data.attending,
+            JSON.stringify(data.guests),
         ].join('|');
     }
 
@@ -484,11 +494,8 @@ function RegistrationPageInner() {
         }
         if (
             !validateRegistrationCost(eventPricing, {
-                numberOfGuests: formData.number_of_guests,
-                lunch: formData.food_preference !== 'none' && formData.lunch,
-                dinner: formData.food_preference !== 'none' && formData.dinner,
+                guests: formData.guests,
                 parkingNeeded: formData.parking_needed,
-                foodPreference: formData.food_preference,
             })
         ) {
             setError('Select at least one meal or parking (or the event needs a registration fee)');
@@ -533,11 +540,9 @@ function RegistrationPageInner() {
                     section: formData.section,
                     city: formData.city.trim(),
                     country: formData.country.trim(),
-                    number_of_guests: formData.number_of_guests,
-                    food_preference: formData.food_preference,
+                    number_of_guests: formData.guests.length,
+                    guests: formData.guests,
                     parking_needed: formData.parking_needed,
-                    lunch: formData.food_preference !== 'none' && formData.lunch,
-                    dinner: formData.food_preference !== 'none' && formData.dinner,
                     attending: formData.attending,
                 }),
             });
@@ -1166,109 +1171,133 @@ function RegistrationPageInner() {
                                         <input
                                             type="number"
                                             min={1}
-                                            value={formData.number_of_guests}
-                                            onChange={(e) =>
+                                            value={formData.guests.length}
+                                            onChange={(e) => {
+                                                const n = partySize(parseInt(e.target.value, 10));
+                                                const guests = resizeGuests(formData.guests, n);
                                                 setFormData({
                                                     ...formData,
-                                                    number_of_guests: partySize(parseInt(e.target.value, 10)),
-                                                })
-                                            }
+                                                    number_of_guests: guests.length,
+                                                    guests,
+                                                });
+                                            }}
                                             required
                                             disabled={busy}
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
                                         />
                                         <p className="text-label-sm text-on-surface-variant mt-1">
-                                            Include yourself. Selected meals are charged for each person.
+                                            Include yourself. Set food and meals for each person below.
                                         </p>
                                     </div>
 
-                                    <div className="flex flex-col">
-                                        <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
-                                            Food Preference *
+                                    <div className="flex flex-col gap-4">
+                                        <label className="text-label-md text-primary uppercase tracking-wider">
+                                            Food & meals per person *
                                         </label>
-                                        <div className="flex flex-wrap gap-4">
-                                            {(
-                                                [
-                                                    { value: 'veg', label: 'Veg' },
-                                                    { value: 'non-veg', label: 'Non-veg' },
-                                                    { value: 'none', label: 'No food' },
-                                                ] as const
-                                            ).map((pref) => (
-                                                <label key={pref.value} className="flex items-center gap-2">
-                                                    <input
-                                                        type="radio"
-                                                        name="food_preference"
-                                                        value={pref.value}
-                                                        checked={formData.food_preference === pref.value}
-                                                        onChange={() =>
-                                                            setFormData({
-                                                                ...formData,
-                                                                food_preference: pref.value,
-                                                                lunch: pref.value === 'none' ? false : formData.lunch,
-                                                                dinner: pref.value === 'none' ? false : formData.dinner,
-                                                            })
-                                                        }
-                                                        disabled={busy}
-                                                        className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
-                                                    />
-                                                    <span className="text-body-sm text-on-surface">
-                                                        {pref.label}
-                                                    </span>
-                                                </label>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {formData.food_preference !== 'none' ? (
-                                        <div className="flex flex-col">
-                                            <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
-                                                Meals
-                                            </label>
-                                            <div className="space-y-2">
-                                                <label className="flex items-center gap-3">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={formData.lunch}
-                                                        onChange={(e) =>
-                                                            setFormData({ ...formData, lunch: e.target.checked })
-                                                        }
-                                                        disabled={busy}
-                                                        className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
-                                                    />
-                                                    <span className="text-body-sm text-on-surface">
-                                                        {mealChoiceLabel(
-                                                            'Lunch',
-                                                            eventPricing.lunch_paise,
-                                                            eventPricing.lunch_nonveg_paise,
-                                                            formData.food_preference
-                                                        )}
-                                                    </span>
-                                                </label>
-                                                <label className="flex items-center gap-3">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={formData.dinner}
-                                                        onChange={(e) =>
-                                                            setFormData({ ...formData, dinner: e.target.checked })
-                                                        }
-                                                        disabled={busy}
-                                                        className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
-                                                    />
-                                                    <span className="text-body-sm text-on-surface">
-                                                        {mealChoiceLabel(
-                                                            'Dinner',
-                                                            eventPricing.dinner_paise,
-                                                            eventPricing.dinner_nonveg_paise,
-                                                            formData.food_preference
-                                                        )}
-                                                    </span>
-                                                </label>
+                                        {formData.guests.map((guest, index) => (
+                                            <div
+                                                key={index}
+                                                className="rounded-lg border border-outline-variant bg-surface px-4 py-3 space-y-3"
+                                            >
+                                                <p className="text-label-md text-primary">
+                                                    {index === 0 ? 'You' : `Guest ${index + 1}`}
+                                                </p>
+                                                <div className="flex flex-wrap gap-4">
+                                                    {(
+                                                        [
+                                                            { value: 'veg', label: 'Veg' },
+                                                            { value: 'non-veg', label: 'Non-veg' },
+                                                            { value: 'none', label: 'No food' },
+                                                        ] as const
+                                                    ).map((pref) => (
+                                                        <label key={pref.value} className="flex items-center gap-2">
+                                                            <input
+                                                                type="radio"
+                                                                name={`food_preference_${index}`}
+                                                                value={pref.value}
+                                                                checked={guest.preference === pref.value}
+                                                                onChange={() => {
+                                                                    const guests = formData.guests.map((g, i) =>
+                                                                        i === index
+                                                                            ? {
+                                                                                  preference: pref.value,
+                                                                                  lunch:
+                                                                                      pref.value === 'none'
+                                                                                          ? false
+                                                                                          : g.lunch,
+                                                                                  dinner:
+                                                                                      pref.value === 'none'
+                                                                                          ? false
+                                                                                          : g.dinner,
+                                                                              }
+                                                                            : g
+                                                                    );
+                                                                    setFormData({ ...formData, guests });
+                                                                }}
+                                                                disabled={busy}
+                                                                className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
+                                                            />
+                                                            <span className="text-body-sm text-on-surface">
+                                                                {pref.label}
+                                                            </span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                {guest.preference !== 'none' ? (
+                                                    <div className="flex flex-wrap gap-4">
+                                                        <label className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={guest.lunch}
+                                                                onChange={(e) => {
+                                                                    const guests = formData.guests.map((g, i) =>
+                                                                        i === index
+                                                                            ? { ...g, lunch: e.target.checked }
+                                                                            : g
+                                                                    );
+                                                                    setFormData({ ...formData, guests });
+                                                                }}
+                                                                disabled={busy}
+                                                                className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
+                                                            />
+                                                            <span className="text-body-sm text-on-surface">
+                                                                {mealChoiceLabel(
+                                                                    'Lunch',
+                                                                    eventPricing.lunch_paise,
+                                                                    eventPricing.lunch_nonveg_paise,
+                                                                    guest.preference
+                                                                )}
+                                                            </span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={guest.dinner}
+                                                                onChange={(e) => {
+                                                                    const guests = formData.guests.map((g, i) =>
+                                                                        i === index
+                                                                            ? { ...g, dinner: e.target.checked }
+                                                                            : g
+                                                                    );
+                                                                    setFormData({ ...formData, guests });
+                                                                }}
+                                                                disabled={busy}
+                                                                className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
+                                                            />
+                                                            <span className="text-body-sm text-on-surface">
+                                                                {mealChoiceLabel(
+                                                                    'Dinner',
+                                                                    eventPricing.dinner_paise,
+                                                                    eventPricing.dinner_nonveg_paise,
+                                                                    guest.preference
+                                                                )}
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                ) : null}
                                             </div>
-                                            <p className="text-label-sm text-on-surface-variant mt-1">
-                                                Optional — leave both unchecked if you only need parking.
-                                            </p>
-                                        </div>
-                                    ) : null}
+                                        ))}
+                                    </div>
 
                                     <div className="flex flex-col">
                                         <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
@@ -1466,30 +1495,40 @@ function RegistrationPageInner() {
                                     <button
                                         type="button"
                                         aria-label="Fewer people"
-                                        disabled={busy || formData.number_of_guests <= 1}
-                                        onClick={() =>
+                                        disabled={busy || formData.guests.length <= 1}
+                                        onClick={() => {
+                                            const guests = resizeGuests(
+                                                formData.guests,
+                                                Math.max(1, formData.guests.length - 1)
+                                            );
                                             setFormData({
                                                 ...formData,
-                                                number_of_guests: Math.max(1, formData.number_of_guests - 1),
-                                            })
-                                        }
+                                                number_of_guests: guests.length,
+                                                guests,
+                                            });
+                                        }}
                                         className="h-11 w-11 rounded-lg border border-outline-variant text-headline-sm text-primary hover:bg-surface-container disabled:opacity-40 cursor-pointer"
                                     >
                                         −
                                     </button>
                                     <span className="w-8 text-center text-headline-sm text-primary tabular-nums">
-                                        {formData.number_of_guests}
+                                        {formData.guests.length}
                                     </span>
                                     <button
                                         type="button"
                                         aria-label="More people"
                                         disabled={busy}
-                                        onClick={() =>
+                                        onClick={() => {
+                                            const guests = resizeGuests(
+                                                formData.guests,
+                                                formData.guests.length + 1
+                                            );
                                             setFormData({
                                                 ...formData,
-                                                number_of_guests: formData.number_of_guests + 1,
-                                            })
-                                        }
+                                                number_of_guests: guests.length,
+                                                guests,
+                                            });
+                                        }}
                                         className="h-11 w-11 rounded-lg border border-outline-variant text-headline-sm text-primary hover:bg-surface-container disabled:opacity-40 cursor-pointer"
                                     >
                                         +

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import RegistrationQr from '@/components/registration-qr';
-import { formatCostForDisplay } from '@/lib/registration';
+import { formatCostForDisplay, type GuestChoice } from '@/lib/registration';
 import { registrationPath } from '@/lib/events/choose-event';
 import { venuePassSummary } from '@/lib/events/venue-pass';
 import type { EventCatalog } from '@/lib/events/types';
@@ -14,6 +14,7 @@ type Registration = {
   dinner: boolean;
   parking_needed: string;
   food_preference: string | null;
+  guests?: GuestChoice[] | null;
   payment_status: string;
   amount_due_paise?: number;
   registration_code?: string | null;

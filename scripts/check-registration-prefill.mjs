@@ -91,4 +91,23 @@ assert.equal(noFood.food_preference, 'none');
 assert.equal(noFood.lunch, false);
 assert.equal(noFood.dinner, false);
 
+const party = mergeRegistrationPrefill(
+  { full_name: 'Party', email: 'p@gmail.com' },
+  {
+    number_of_guests: 2,
+    food_preference: 'veg',
+    parking_needed: 'none',
+    lunch: true,
+    dinner: false,
+    attending: true,
+    payment_status: 'pending',
+    guests: [
+      { preference: 'veg', lunch: true, dinner: false },
+      { preference: 'non-veg', lunch: false, dinner: true },
+    ],
+  }
+);
+assert.equal(party.guests.length, 2);
+assert.equal(party.guests[1].preference, 'non-veg');
+
 console.log('PASS registration prefill merge');

@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import AdminShell from '@/components/admin-shell';
-import { formatCostForDisplay } from '@/lib/registration';
+import {
+  formatCostForDisplay,
+  formatGuestMealCounts,
+  guestMealCounts,
+  guestsFromLegacy,
+  normalizeGuests,
+  type GuestChoice,
+} from '@/lib/registration';
 import type { EventCatalog } from '@/lib/events/types';
 
 type Row = {
@@ -15,6 +22,8 @@ type Row = {
   number_of_guests: number;
   lunch: boolean;
   dinner: boolean;
+  food_preference?: string | null;
+  guests?: GuestChoice[] | null;
   parking_needed: string;
   total_cost_paise: number;
   amount_paid_paise?: number;
@@ -23,6 +32,14 @@ type Row = {
   registration_code?: string | null;
   created_at: string;
 };
+
+function mealLine(r: Row): string {
+  const guests =
+    Array.isArray(r.guests) && r.guests.length > 0
+      ? normalizeGuests(r.guests, r.number_of_guests)
+      : guestsFromLegacy(r.number_of_guests, r.food_preference, r.lunch, r.dinner);
+  return formatGuestMealCounts(guestMealCounts(guests));
+}
 
 export default function AdminRegistrationsInner() {
   const searchParams = useSearchParams();
@@ -161,9 +178,7 @@ export default function AdminRegistrationsInner() {
                   </td>
                   <td className="px-4 py-3 text-navy-subtle">{r.event_title}</td>
                   <td className="px-4 py-3">{r.number_of_guests}</td>
-                  <td className="px-4 py-3">
-                    {[r.lunch && 'Lunch', r.dinner && 'Dinner'].filter(Boolean).join(' · ') || '—'}
-                  </td>
+                  <td className="px-4 py-3 text-body-sm">{mealLine(r)}</td>
                   <td className="px-4 py-3">{r.parking_needed}</td>
                   <td className="px-4 py-3 tabular-nums text-jubilee-gold-deep font-medium">
                     <div>{formatCostForDisplay(r.total_cost_paise)}</div>

@@ -73,6 +73,29 @@ const nonveg = repriceRegistration(
 );
 assert(nonveg.total_cost_paise === 130000, 'non-veg reprice uses the non-veg meal rates');
 assert(nonveg.payment_status === 'partial', 'non-veg increase leaves a balance');
+
+const mixed = repriceRegistration(
+  {
+    ...oldRates,
+    lunch_nonveg_paise: 45000,
+    dinner_nonveg_paise: 70000,
+    base_ticket_paise: 10000,
+  },
+  {
+    number_of_guests: 3,
+    lunch: true,
+    dinner: true,
+    parking_needed: '4-wheeler',
+    guests: [
+      { preference: 'non-veg', lunch: true, dinner: true },
+      { preference: 'veg', lunch: true, dinner: false },
+      { preference: 'none', lunch: false, dinner: false },
+    ],
+    amount_paid_paise: 0,
+  }
+);
+assert(mixed.total_cost_paise === 195000, 'mixed guest reprice matches per-guest total');
+
 assert(mealChoiceLabel('Lunch', 40000, 55000, 'veg') === 'Lunch · ₹400 / person', 'veg meal label');
 assert(
   mealChoiceLabel('Lunch', 40000, 55000, 'non-veg') === 'Lunch · ₹550 / person',

@@ -6,6 +6,7 @@ import { selectCatalog } from '@/lib/events/catalog-select';
 import { eventToPricing } from '@/lib/events/pricing';
 import { type EventCatalog } from '@/lib/events/types';
 import { repriceRegistration } from '@/lib/events/reprice-math';
+import type { GuestChoice } from '@/lib/registration';
 import { createAdminClient } from '@/lib/supabase-admin';
 
 export { repriceRegistration } from '@/lib/events/reprice-math';
@@ -18,6 +19,7 @@ type StoredReg = {
   dinner: boolean;
   parking_needed: string;
   food_preference?: string | null;
+  guests?: GuestChoice[] | null;
   amount_paid_paise?: number | null;
   total_cost_paise: number;
   payment_status: string;
@@ -38,7 +40,7 @@ export async function repriceEventRegistrations(eventId: string): Promise<number
   const { data: rows, error: regError } = await admin
     .from('event_registrations')
     .select(
-      'id,account_id,number_of_guests,food_preference,lunch,dinner,parking_needed,amount_paid_paise,total_cost_paise,payment_status'
+      'id,account_id,number_of_guests,food_preference,lunch,dinner,guests,parking_needed,amount_paid_paise,total_cost_paise,payment_status'
     )
     .eq('event_id', id)
     .in('payment_status', [...OPEN_PAYMENT_STATUSES]);

@@ -11,7 +11,9 @@ import { eventToPricing } from '@/lib/events/pricing';
 import type { ExistingRegistrationRow } from '@/lib/events/existing-registration';
 import {
   calculateEventRegistrationCost,
-  normalizeFoodPreference,
+  guestsFromLegacy,
+  legacySummaryFromGuests,
+  normalizeGuests,
   partySize,
   validateRegistrationCost,
   type CostCalculationInput,
@@ -30,7 +32,7 @@ import { normalizePhoneNumber, phoneValidationError, splitE164 } from '@/lib/pho
 import { createAdminClient } from '@/lib/supabase-admin';
 
 const REG_SELECT =
-  'id,event_id,number_of_guests,food_preference,parking_needed,lunch,dinner,attending,phone_number,payment_status,total_cost_paise,amount_paid_paise';
+  'id,event_id,number_of_guests,food_preference,parking_needed,lunch,dinner,guests,attending,phone_number,payment_status,total_cost_paise,amount_paid_paise';
 
 function profilePayload(me: AlumniAccount) {
   return {
@@ -188,14 +190,15 @@ export async function registerAccountForEvent(
   const parkingNeeded = (['none', '2-wheeler', '4-wheeler'].includes(String(body.parking_needed))
     ? String(body.parking_needed)
     : 'none') as ParkingNeeded;
-  const foodPreference = normalizeFoodPreference(body.food_preference);
-  const wantsMeals = foodPreference !== 'none';
+  const peopleHint = partySize(Number(body.number_of_guests));
+  const guests =
+    Array.isArray(body.guests) && body.guests.length > 0
+      ? normalizeGuests(body.guests, peopleHint)
+      : guestsFromLegacy(peopleHint, body.food_preference, Boolean(body.lunch), Boolean(body.dinner));
+  const summary = legacySummaryFromGuests(guests);
   const input = {
-    numberOfGuests: partySize(Number(body.number_of_guests)),
-    lunch: wantsMeals && Boolean(body.lunch),
-    dinner: wantsMeals && Boolean(body.dinner),
+    guests,
     parkingNeeded,
-    foodPreference,
   } satisfies CostCalculationInput;
   const pricing = eventToPricing(catalog);
   if (!validateRegistrationCost(pricing, input)) {
@@ -241,11 +244,12 @@ export async function registerAccountForEvent(
     event_id: eventId,
     account_id: me.id,
     phone_number: phone,
-    number_of_guests: input.numberOfGuests,
-    food_preference: foodPreference,
+    number_of_guests: guests.length,
+    food_preference: summary.food_preference,
     parking_needed: input.parkingNeeded,
-    lunch: input.lunch,
-    dinner: input.dinner,
+    lunch: summary.lunch,
+    dinner: summary.dinner,
+    guests,
     attending: body.attending !== false,
     total_cost_paise: total,
     amount_paid_paise: priorPaid,

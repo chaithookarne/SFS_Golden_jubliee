@@ -57,4 +57,35 @@ assert.equal(none.food_preference, 'none');
 assert.equal(none.lunch, false);
 assert.equal(none.dinner, false);
 
+const withGuests = registrationChoicesFromRow({
+  number_of_guests: 2,
+  food_preference: 'veg',
+  parking_needed: 'none',
+  lunch: true,
+  dinner: false,
+  attending: true,
+  payment_status: 'pending',
+  guests: [
+    { preference: 'veg', lunch: true, dinner: false },
+    { preference: 'non-veg', lunch: false, dinner: true },
+  ],
+});
+assert.equal(withGuests.guests.length, 2);
+assert.equal(withGuests.guests[1].preference, 'non-veg');
+assert.equal(withGuests.guests[1].dinner, true);
+
+const legacyExpand = registrationChoicesFromRow({
+  number_of_guests: 2,
+  food_preference: 'non-veg',
+  parking_needed: 'none',
+  lunch: true,
+  dinner: false,
+  attending: true,
+  payment_status: 'pending',
+  guests: [],
+});
+assert.equal(legacyExpand.guests.length, 2);
+assert.equal(legacyExpand.guests[0].preference, 'non-veg');
+assert.equal(legacyExpand.guests[1].lunch, true);
+
 console.log('PASS existing registration → form choices');

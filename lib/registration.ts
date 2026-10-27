@@ -3,18 +3,118 @@
 export type ParkingNeeded = '2-wheeler' | '4-wheeler' | 'none';
 export type FoodPreference = 'veg' | 'non-veg' | 'none';
 
+export type GuestChoice = {
+  preference: FoodPreference;
+  lunch: boolean;
+  dinner: boolean;
+};
+
+export type GuestMealCounts = {
+  lunchVeg: number;
+  lunchNonVeg: number;
+  dinnerVeg: number;
+  dinnerNonVeg: number;
+  noFood: number;
+  people: number;
+};
+
 export function normalizeFoodPreference(value: unknown): FoodPreference {
   if (value === 'non-veg') return 'non-veg';
   if (value === 'none') return 'none';
   return 'veg';
 }
 
-export type CostCalculationInput = {
-  numberOfGuests: number;
+export function normalizeGuest(raw: unknown): GuestChoice {
+  const row = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const preference = normalizeFoodPreference(row.preference ?? row.food_preference);
+  if (preference === 'none') return { preference: 'none', lunch: false, dinner: false };
+  return {
+    preference,
+    lunch: Boolean(row.lunch),
+    dinner: Boolean(row.dinner),
+  };
+}
+
+export function guestsFromLegacy(
+  people: number,
+  preference: unknown,
+  lunch: boolean,
+  dinner: boolean
+): GuestChoice[] {
+  const n = partySize(people);
+  const one = normalizeGuest({ preference, lunch, dinner });
+  return Array.from({ length: n }, () => ({ ...one }));
+}
+
+export function normalizeGuests(raw: unknown, fallbackPeople = 1): GuestChoice[] {
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((g) => normalizeGuest(g));
+  }
+  return guestsFromLegacy(fallbackPeople, 'veg', false, false);
+}
+
+export function legacySummaryFromGuests(guests: GuestChoice[]): {
+  food_preference: string;
   lunch: boolean;
   dinner: boolean;
+} {
+  const list = guests.length ? guests.map(normalizeGuest) : [normalizeGuest({})];
+  const prefs = new Set(list.map((g) => g.preference));
+  let food_preference: string;
+  if (prefs.size === 1) food_preference = [...prefs][0];
+  else if ([...prefs].every((p) => p === 'none')) food_preference = 'none';
+  else food_preference = 'mixed';
+  return {
+    food_preference,
+    lunch: list.some((g) => g.lunch),
+    dinner: list.some((g) => g.dinner),
+  };
+}
+
+export function guestMealCounts(guests: GuestChoice[]): GuestMealCounts {
+  const list = guests.map(normalizeGuest);
+  const counts: GuestMealCounts = {
+    lunchVeg: 0,
+    lunchNonVeg: 0,
+    dinnerVeg: 0,
+    dinnerNonVeg: 0,
+    noFood: 0,
+    people: list.length || 1,
+  };
+  for (const g of list) {
+    if (g.preference === 'none') {
+      counts.noFood += 1;
+      continue;
+    }
+    if (g.lunch) {
+      if (g.preference === 'non-veg') counts.lunchNonVeg += 1;
+      else counts.lunchVeg += 1;
+    }
+    if (g.dinner) {
+      if (g.preference === 'non-veg') counts.dinnerNonVeg += 1;
+      else counts.dinnerVeg += 1;
+    }
+  }
+  return counts;
+}
+
+export function formatGuestMealCounts(counts: GuestMealCounts): string {
+  const bits: string[] = [];
+  if (counts.lunchVeg) bits.push(`Lunch veg×${counts.lunchVeg}`);
+  if (counts.lunchNonVeg) bits.push(`Lunch non-veg×${counts.lunchNonVeg}`);
+  if (counts.dinnerVeg) bits.push(`Dinner veg×${counts.dinnerVeg}`);
+  if (counts.dinnerNonVeg) bits.push(`Dinner non-veg×${counts.dinnerNonVeg}`);
+  if (counts.noFood) bits.push(`No food×${counts.noFood}`);
+  return bits.join(' · ') || 'No meals';
+}
+
+export type CostCalculationInput = {
+  numberOfGuests?: number;
+  lunch?: boolean;
+  dinner?: boolean;
   parkingNeeded: ParkingNeeded;
   foodPreference?: FoodPreference;
+  guests?: GuestChoice[];
 };
 
 export type EventPricing = {
@@ -60,6 +160,18 @@ export function partySize(numberOfGuests: number): number {
   return n;
 }
 
+function resolveGuests(input: CostCalculationInput): GuestChoice[] {
+  if (Array.isArray(input.guests) && input.guests.length > 0) {
+    return input.guests.map(normalizeGuest);
+  }
+  return guestsFromLegacy(
+    input.numberOfGuests ?? 1,
+    input.foodPreference ?? 'veg',
+    Boolean(input.lunch),
+    Boolean(input.dinner)
+  );
+}
+
 export function getEventCostBreakdown(
   pricing: EventPricing,
   input: CostCalculationInput
@@ -70,20 +182,14 @@ export function getEventCostBreakdown(
   totalCost: number;
   details: string;
 } {
-  const totalPeople = partySize(input.numberOfGuests);
+  const guests = resolveGuests(input);
+  const totalPeople = guests.length;
   let mealCost = 0;
-  const mealBits: string[] = [];
 
-  const diet = input.foodPreference === 'non-veg' ? 'non-veg' : 'veg';
-  if (input.lunch) {
-    const rate = mealRatePaise(pricing, 'lunch', input.foodPreference);
-    mealCost += totalPeople * rate;
-    mealBits.push(`Lunch ${diet} ₹${(rate / 100).toFixed(0)}`);
-  }
-  if (input.dinner) {
-    const rate = mealRatePaise(pricing, 'dinner', input.foodPreference);
-    mealCost += totalPeople * rate;
-    mealBits.push(`Dinner ${diet} ₹${(rate / 100).toFixed(0)}`);
+  for (const g of guests) {
+    if (g.preference === 'none') continue;
+    if (g.lunch) mealCost += mealRatePaise(pricing, 'lunch', g.preference);
+    if (g.dinner) mealCost += mealRatePaise(pricing, 'dinner', g.preference);
   }
 
   const parkingCost =
@@ -95,16 +201,37 @@ export function getEventCostBreakdown(
 
   const baseRate = pricing.base_ticket_paise || 0;
   const baseCost = totalPeople * baseRate;
+  const counts = guestMealCounts(guests);
+
+  const mealBits: string[] = [];
+  if (counts.lunchVeg) {
+    mealBits.push(`Lunch veg×${counts.lunchVeg} ₹${(mealRatePaise(pricing, 'lunch', 'veg') / 100).toFixed(0)}`);
+  }
+  if (counts.lunchNonVeg) {
+    mealBits.push(
+      `Lunch non-veg×${counts.lunchNonVeg} ₹${(mealRatePaise(pricing, 'lunch', 'non-veg') / 100).toFixed(0)}`
+    );
+  }
+  if (counts.dinnerVeg) {
+    mealBits.push(
+      `Dinner veg×${counts.dinnerVeg} ₹${(mealRatePaise(pricing, 'dinner', 'veg') / 100).toFixed(0)}`
+    );
+  }
+  if (counts.dinnerNonVeg) {
+    mealBits.push(
+      `Dinner non-veg×${counts.dinnerNonVeg} ₹${(mealRatePaise(pricing, 'dinner', 'non-veg') / 100).toFixed(0)}`
+    );
+  }
 
   let details =
     mealBits.length > 0
-      ? `${totalPeople} person(s) × (${mealBits.join(' + ')})`
-      : `${totalPeople} person(s) × No meals`;
+      ? `${totalPeople} people · ${mealBits.join(' · ')}`
+      : `${totalPeople} people · No meals`;
   if (parkingCost > 0) {
-    details += ` + parking ₹${(parkingCost / 100).toFixed(0)}`;
+    details += ` · parking ₹${(parkingCost / 100).toFixed(0)}`;
   }
   if (baseRate > 0) {
-    details += ` + registration fee ₹${(baseRate / 100).toFixed(0)} / person`;
+    details += ` · registration fee ₹${(baseRate / 100).toFixed(0)} / person`;
   }
 
   return {
@@ -142,7 +269,8 @@ export function validateRegistrationCost(
 ): boolean {
   const pricing = maybeInput ? (pricingOrInput as EventPricing) : DEFAULT_JUBILEE_PRICING;
   const input = maybeInput ?? (pricingOrInput as CostCalculationInput);
-  const hasMeal = input.lunch || input.dinner;
+  const guests = resolveGuests(input);
+  const hasMeal = guests.some((g) => g.lunch || g.dinner);
   const hasParking = input.parkingNeeded !== 'none';
   const hasBase = (pricing.base_ticket_paise || 0) > 0;
   return hasMeal || hasParking || hasBase;

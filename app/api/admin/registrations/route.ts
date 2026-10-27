@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   await issueMissingPaidCodes(admin as unknown as RegistrationCodeAdmin);
 
   const columns =
-    'id,event_id,account_id,phone_number,number_of_guests,food_preference,parking_needed,lunch,dinner,attending,total_cost_paise,amount_paid_paise,payment_status,created_at,event_catalog(title),alumni_accounts(full_name,email)';
+    'id,event_id,account_id,phone_number,number_of_guests,food_preference,parking_needed,lunch,dinner,guests,attending,total_cost_paise,amount_paid_paise,payment_status,created_at,event_catalog(title),alumni_accounts(full_name,email)';
 
   function list(select: string) {
     let query = admin
@@ -61,6 +61,7 @@ export async function GET(request: Request) {
     parking_needed: string;
     lunch: boolean;
     dinner: boolean;
+    guests?: unknown;
     attending: boolean;
     total_cost_paise: number;
     amount_paid_paise?: number;
@@ -89,6 +90,7 @@ export async function GET(request: Request) {
         parking_needed: r.parking_needed,
         lunch: r.lunch,
         dinner: r.dinner,
+        guests: r.guests ?? null,
         attending: r.attending,
         total_cost_paise: r.total_cost_paise,
         amount_paid_paise,

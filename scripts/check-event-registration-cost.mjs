@@ -1,6 +1,8 @@
 import {
   calculateEventRegistrationCost,
   getEventCostBreakdown,
+  guestMealCounts,
+  legacySummaryFromGuests,
   validateRegistrationCost,
 } from '../lib/registration.ts';
 
@@ -108,5 +110,33 @@ assert(
   getEventCostBreakdown(jubilee, parkingOnly).details.includes('No meals'),
   'no-food breakdown says No meals'
 );
+
+const mixedPricing = {
+  lunch_paise: 30000,
+  dinner_paise: 50000,
+  lunch_nonveg_paise: 45000,
+  dinner_nonveg_paise: 70000,
+  parking_2w_paise: 5000,
+  parking_4w_paise: 20000,
+  base_ticket_paise: 10000,
+};
+const mixedGuests = [
+  { preference: 'non-veg', lunch: true, dinner: true },
+  { preference: 'veg', lunch: true, dinner: false },
+  { preference: 'none', lunch: false, dinner: false },
+];
+assert(
+  calculateEventRegistrationCost(mixedPricing, {
+    guests: mixedGuests,
+    parkingNeeded: '4-wheeler',
+  }) === 195000,
+  'mixed party totals per guest'
+);
+const counts = guestMealCounts(mixedGuests);
+assert(counts.lunchVeg === 1, 'lunch veg count');
+assert(counts.lunchNonVeg === 1, 'lunch non-veg count');
+assert(counts.dinnerNonVeg === 1, 'dinner non-veg count');
+assert(counts.noFood === 1, 'no-food count');
+assert(legacySummaryFromGuests(mixedGuests).food_preference === 'mixed', 'legacy summary mixed');
 
 console.log('PASS event registration cost');

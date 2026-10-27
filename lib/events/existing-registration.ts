@@ -1,7 +1,11 @@
 import {
+  guestsFromLegacy,
+  legacySummaryFromGuests,
   normalizeFoodPreference,
+  normalizeGuests,
   partySize,
   type FoodPreference,
+  type GuestChoice,
   type ParkingNeeded,
 } from '../registration';
 import { parseLocation } from '../registration-fields';
@@ -18,6 +22,7 @@ export type ExistingRegistrationRow = {
   amount_paid_paise?: number;
   amount_due_paise?: number;
   total_cost_paise?: number;
+  guests?: GuestChoice[] | null;
 };
 
 export type RegistrationProfileSnapshot = {
@@ -39,6 +44,7 @@ export type RegistrationFormChoices = {
   attending: boolean;
   phone_number?: string;
   payment_status: string;
+  guests: GuestChoice[];
 };
 
 export type RegistrationPrefill = {
@@ -56,6 +62,7 @@ export type RegistrationPrefill = {
   lunch: boolean;
   dinner: boolean;
   attending: boolean;
+  guests: GuestChoice[];
   payment_status?: string;
   amount_paid_paise?: number;
   amount_due_paise?: number;
@@ -64,6 +71,19 @@ export type RegistrationPrefill = {
 
 const PARKING: ParkingNeeded[] = ['none', '2-wheeler', '4-wheeler'];
 
+function guestsForRow(row: ExistingRegistrationRow): GuestChoice[] {
+  const people = partySize(Number(row.number_of_guests));
+  if (Array.isArray(row.guests) && row.guests.length > 0) {
+    return normalizeGuests(row.guests, people);
+  }
+  return guestsFromLegacy(
+    people,
+    row.food_preference,
+    Boolean(row.lunch),
+    Boolean(row.dinner)
+  );
+}
+
 export function registrationChoicesFromRow(
   row: ExistingRegistrationRow | null | undefined
 ): RegistrationFormChoices | null {
@@ -71,15 +91,20 @@ export function registrationChoicesFromRow(
   const parking = PARKING.includes(row.parking_needed as ParkingNeeded)
     ? (row.parking_needed as ParkingNeeded)
     : 'none';
+  const guests = guestsForRow(row);
+  const summary = legacySummaryFromGuests(guests);
   return {
-    number_of_guests: partySize(Number(row.number_of_guests)),
-    food_preference: normalizeFoodPreference(row.food_preference),
+    number_of_guests: guests.length,
+    food_preference: normalizeFoodPreference(
+      summary.food_preference === 'mixed' ? guests[0]?.preference : summary.food_preference
+    ),
     parking_needed: parking,
-    lunch: Boolean(row.lunch),
-    dinner: Boolean(row.dinner),
+    lunch: summary.lunch,
+    dinner: summary.dinner,
     attending: row.attending !== false,
     phone_number: row.phone_number || undefined,
     payment_status: row.payment_status,
+    guests,
   };
 }
 
@@ -91,6 +116,9 @@ export function mergeRegistrationPrefill(
   const choices = registrationChoicesFromRow(row);
   const loc = parseLocation(profile?.current_location || '');
   const phone = choices?.phone_number || profile?.phone_number || '';
+  const guests =
+    choices?.guests ??
+    guestsFromLegacy(1, 'veg', false, false);
   return {
     full_name: String(profile?.full_name || '').trim(),
     last_name: String(profile?.last_name || '').trim(),
@@ -100,12 +128,13 @@ export function mergeRegistrationPrefill(
     section: String(profile?.section || '').trim(),
     city: loc.city,
     country: loc.country,
-    number_of_guests: partySize(choices?.number_of_guests ?? 1),
+    number_of_guests: guests.length,
     food_preference: choices?.food_preference ?? 'veg',
     parking_needed: choices?.parking_needed ?? 'none',
     lunch: choices?.lunch ?? false,
     dinner: choices?.dinner ?? false,
     attending: choices?.attending ?? true,
+    guests,
     payment_status: choices?.payment_status,
     amount_paid_paise: Math.max(0, Number(row?.amount_paid_paise) || 0),
     amount_due_paise: Math.max(0, Number(row?.amount_due_paise) || 0),

@@ -8,6 +8,7 @@ type Hit = {
   registration_code: string;
   full_name: string;
   number_of_guests: number;
+  meals?: string;
   event_title: string;
   payment_status: string;
   amount_due_paise: number;
@@ -91,6 +92,12 @@ export default function CheckInPage() {
               <dt className="text-on-surface-variant">People</dt>
               <dd className="text-primary tabular-nums">{hit.number_of_guests}</dd>
             </div>
+            {hit.meals ? (
+              <div className="flex justify-between gap-4">
+                <dt className="text-on-surface-variant">Meals</dt>
+                <dd className="text-primary text-right">{hit.meals}</dd>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-4">
               <dt className="text-on-surface-variant">Event</dt>
               <dd className="text-primary text-right">{hit.event_title}</dd>
