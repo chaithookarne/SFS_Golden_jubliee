@@ -4,44 +4,52 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-
+import { usePathname, useRouter } from 'next/navigation';
 export default function NavBar() {
-    const [user, setUser] = useState<{ email: string } | null>(null);
+    const [user, setUser] = useState<{ email: string; isAdmin: boolean } | null>(null);
     const [loading, setLoading] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const router = useRouter();
+    const pathname = usePathname();
 
     useEffect(() => {
+        let active = true;
         async function checkAuth() {
             try {
-                const res = await fetch('/api/auth/me');
+                const res = await fetch('/api/auth/me', { cache: 'no-store' });
+                if (!active) return;
                 if (res.ok) {
                     const me = await res.json();
-                    setUser({ email: me.email });
+                    setUser({
+                        email: me.email,
+                        isAdmin: me.role === 'admin' && me.member_status === 'verified',
+                    });
                 } else {
                     setUser(null);
                 }
             } catch {
-                setUser(null);
+                if (active) setUser(null);
             } finally {
-                setLoading(false);
+                if (active) setLoading(false);
             }
         }
-        checkAuth();
-    }, []);
+        void checkAuth();
+        return () => {
+            active = false;
+        };
+    }, [pathname]);
 
     async function handleLogout() {
         await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setMobileMenuOpen(false);
         router.push('/');
+        router.refresh();
     }
 
     return (
         <header className="fixed top-0 left-0 w-full z-50 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
             <div className="h-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-12 flex items-center justify-between gap-4">
-                {/* Logo + School Name */}
                 <Link
                     className="flex items-center gap-2.5 sm:gap-3.5 group text-left min-w-0"
                     href="/"
@@ -69,25 +77,8 @@ export default function NavBar() {
                     </div>
                 </Link>
 
-                {/* Desktop Navigation Buttons */}
-                <div className="hidden md:flex items-center gap-3">
-                    <Link
-                        href="/registration"
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary-container hover:bg-secondary-fixed text-on-secondary-fixed text-label-md uppercase tracking-wider shadow-sm transition-all"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">how_to_reg</span>
-                        Register
-                    </Link>
-
-                    <div className="h-5 w-px bg-outline-variant"></div>
-
-                    {!loading && user && (
-                        <Link href="/member" className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-primary hover:bg-surface-container transition-colors">
-                            Alumni Portal
-                        </Link>
-                    )}
-
-                    {!loading && !user ? (
+                <div className="hidden md:flex items-center gap-2 lg:gap-3 shrink-0">
+                    {!loading && !user && (
                         <>
                             <Link
                                 href="/login"
@@ -102,23 +93,46 @@ export default function NavBar() {
                                 Sign Up
                             </Link>
                         </>
-                    ) : (
+                    )}
+
+                    {!loading && user && (
                         <>
-                            <span className="text-label-sm text-on-surface-variant px-3 max-w-[160px] truncate">
-                                {user?.email}
+                            <div className="h-5 w-px bg-outline-variant" />
+                            {!user.isAdmin && (
+                                <Link
+                                    href="/member"
+                                    className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-primary hover:bg-surface-container transition-colors"
+                                >
+                                    Alumni Portal
+                                </Link>
+                            )}
+                            {user.isAdmin && (
+                                <Link
+                                    href="/admin"
+                                    className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider bg-primary text-on-primary hover:bg-navy-subtle shadow-sm transition-all"
+                                >
+                                    Admin
+                                </Link>
+                            )}
+                            <span
+                                className="hidden lg:inline text-label-sm text-on-surface-variant px-2 max-w-[140px] truncate"
+                                title={user.email}
+                            >
+                                {user.email}
                             </span>
                             <button
-                                onClick={handleLogout}
-                                className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-error hover:bg-error-container transition-colors"
+                                type="button"
+                                onClick={() => void handleLogout()}
+                                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-error border border-error/30 hover:bg-error-container transition-colors cursor-pointer"
                                 title="Logout"
                             >
+                                <span className="material-symbols-outlined text-[18px]">logout</span>
                                 Logout
                             </button>
                         </>
                     )}
                 </div>
 
-                {/* Mobile Menu Button */}
                 <div className="flex md:hidden items-center">
                     <button
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -132,21 +146,9 @@ export default function NavBar() {
                 </div>
             </div>
 
-            {/* Mobile Dropdown Menu */}
             {mobileMenuOpen && (
                 <div className="md:hidden absolute top-20 left-0 w-full bg-white border-b border-outline-variant shadow-lg py-4 px-6 flex flex-col gap-3 transition-all">
-                    <Link
-                        href="/registration"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-secondary-container text-on-secondary-fixed text-label-md uppercase tracking-wider shadow-sm"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">how_to_reg</span>
-                        Register
-                    </Link>
-
-                    <hr className="border-outline-variant my-1" />
-
-                    {!loading && !user ? (
+                    {!loading && !user && (
                         <div className="flex flex-col gap-2">
                             <Link
                                 href="/login"
@@ -163,18 +165,36 @@ export default function NavBar() {
                                 Sign Up
                             </Link>
                         </div>
-                    ) : (
+                    )}
+                    {!loading && user && (
                         <div className="flex flex-col gap-2 text-center">
-                            <Link href="/member" onClick={() => setMobileMenuOpen(false)} className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider bg-surface-container text-primary">
-                                Alumni Portal
-                            </Link>
+                            {!user.isAdmin && (
+                                <Link
+                                    href="/member"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider bg-surface-container text-primary"
+                                >
+                                    Alumni Portal
+                                </Link>
+                            )}
+                            {user.isAdmin && (
+                                <Link
+                                    href="/admin"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider bg-primary text-on-primary"
+                                >
+                                    Admin
+                                </Link>
+                            )}
                             <span className="text-label-sm text-on-surface-variant truncate py-1">
-                                {user?.email}
+                                {user.email}
                             </span>
                             <button
-                                onClick={handleLogout}
-                                className="w-full inline-flex items-center justify-center px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider text-error bg-error-container/50 hover:bg-error-container transition-colors"
+                                type="button"
+                                onClick={() => void handleLogout()}
+                                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-label-md uppercase tracking-wider text-error bg-error-container/50 hover:bg-error-container transition-colors cursor-pointer"
                             >
+                                <span className="material-symbols-outlined text-[18px]">logout</span>
                                 Logout
                             </button>
                         </div>

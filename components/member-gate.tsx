@@ -70,15 +70,17 @@ export default function MemberGate({
               : 'Portal setup required';
 
   const body =
-    state === 'signed-out'
-      ? 'Sign in or create an account to request access.'
-      : state === 'pending'
-        ? 'Your account exists, but the alumni committee must verify your connection to SFS before private directory access is enabled.'
-        : state === 'rejected'
-          ? 'Your membership is not currently active. Please contact the alumni committee.'
-          : state === 'forbidden'
-            ? 'This workspace is restricted to authorised, verified committee administrators.'
-            : 'The alumni database is not fully configured. Apply the alumni_accounts migration and set AUTH_SECRET plus SUPABASE_SERVICE_ROLE_KEY.';
+    state === 'loading'
+      ? 'One moment.'
+      : state === 'signed-out'
+        ? 'Sign in or create an account to request access.'
+        : state === 'pending'
+          ? 'Your account exists, but the alumni committee must verify your connection to SFS before private directory access is enabled.'
+          : state === 'rejected'
+            ? 'Your membership is not currently active. Please contact the alumni committee.'
+            : state === 'forbidden'
+              ? 'This workspace is restricted to authorised, verified committee administrators.'
+              : 'The alumni database is not fully configured. Apply the alumni_accounts migration and set AUTH_SECRET plus SUPABASE_SERVICE_ROLE_KEY.';
 
   return (
     <section className="max-w-2xl rounded-2xl border border-outline-variant bg-white p-8">

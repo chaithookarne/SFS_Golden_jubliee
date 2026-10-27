@@ -242,19 +242,6 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-
-            {/* Back-to-CTA */}
-            <div className="mt-12 text-center">
-              <Link
-                href="/registration"
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-surface-paper hover:bg-surface-container text-primary text-label-md uppercase tracking-wider shadow-sm transition-all border border-surface-container-highest"
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  how_to_reg
-                </span>
-                Register for the Jubilee Reunion
-              </Link>
-            </div>
           </div>
         </section>
       </main>

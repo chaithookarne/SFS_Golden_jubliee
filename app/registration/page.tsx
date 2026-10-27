@@ -1,12 +1,54 @@
 // app/registration/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
-import { normalizePhoneNumber } from '@/lib/phone';
-import { calculateRegistrationCost } from '@/lib/registration';
+import { isPublicEmail, normalizeEmail } from '@/lib/email';
+import RegistrationQr from '@/components/registration-qr';
+import SearchableSelect from '@/components/searchable-select';
+import { COUNTRIES } from '@/lib/countries';
+import {
+    COUNTRY_CALLING_CODES,
+    normalizePhoneNumber,
+    phoneInputHint,
+    phoneValidationError,
+    splitE164,
+    toE164,
+} from '@/lib/phone';
+import {
+    DEFAULT_JUBILEE_PRICING,
+    formatCostForDisplay,
+    getEventCostBreakdown,
+    partySize,
+    type EventPricing,
+} from '@/lib/registration';
+import { amountDuePaise } from '@/lib/events/balance';
+import { chooseRegistrationEvent, registrationPath } from '@/lib/events/choose-event';
+import { eventIsOpen } from '@/lib/events/open';
+import { eventToPricing, mealChoiceLabel, mealPriceSummary } from '@/lib/events/pricing';
+import { mergeRegistrationPrefill } from '@/lib/events/existing-registration';
+import type { EventCatalog } from '@/lib/events/types';
+import { openRazorpayCheckout } from '@/lib/payments/checkout-client';
+import {
+    SECTIONS,
+    batchYears,
+    formatLocation,
+    isValidBatch,
+    isValidSection,
+    parseLocation,
+} from '@/lib/registration-fields';
+
+const BATCH_YEARS = batchYears();
+const BATCH_OPTIONS = BATCH_YEARS.map((year) => ({
+    value: String(year),
+    label: String(year),
+}));
+const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ value: c, label: c }));
+
+// Registration still uses Supabase client for optional pre_registration RPCs;
+// account session is table-based via /api/auth/me.
 
 type RegistrationStep = 'phone' | 'confirm_prefill' | 'details' | 'review' | 'success';
 
@@ -29,7 +71,8 @@ interface FormData {
     last_name: string;
     batch?: number;
     section: string;
-    current_location: string;
+    city: string;
+    country: string;
     email: string;
     number_of_guests: number;
     food_preference: 'veg' | 'non-veg';
@@ -40,79 +83,244 @@ interface FormData {
 }
 
 export default function RegistrationPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="min-h-screen bg-surface flex items-center justify-center pt-20">
+                    <p className="text-body-md text-on-surface-variant">Loading...</p>
+                </div>
+            }
+        >
+            <RegistrationPageInner />
+        </Suspense>
+    );
+}
+
+function RegistrationPageInner() {
     const [user, setUser] = useState<any>(null);
+    const [gate, setGate] = useState<'ok' | 'admin' | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentStep, setCurrentStep] = useState<RegistrationStep>('phone');
     const [error, setError] = useState('');
     const [preRegData, setPreRegData] = useState<PreRegistrationData | null>(null);
     const [phoneInput, setPhoneInput] = useState('');
+    const [phoneIsd, setPhoneIsd] = useState('+91');
+    const [phoneNational, setPhoneNational] = useState('');
     const [formData, setFormData] = useState<FormData>({
         phone_number: '',
         full_name: '',
         last_name: '',
         section: '',
-        current_location: '',
+        city: '',
+        country: '',
         email: '',
-        number_of_guests: 0,
+        number_of_guests: 1,
         food_preference: 'veg',
         parking_needed: 'none',
         lunch: false,
         dinner: false,
         attending: true,
     });
-    const [totalCost, setTotalCost] = useState(0);
-    const [submitting, setSubmitting] = useState(false);
+    const [amountPaid, setAmountPaid] = useState(0);
+    const [registrationId, setRegistrationId] = useState<string | null>(null);
+    const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+    const [registrationCode, setRegistrationCode] = useState<string | null>(null);
+    const [lastDue, setLastDue] = useState(0);
+    const [saving, setSaving] = useState(false);
+    const [paying, setPaying] = useState(false);
+    const [saveMessage, setSaveMessage] = useState('');
+    const [savedFingerprint, setSavedFingerprint] = useState('');
+    const [event, setEvent] = useState<EventCatalog | null>(null);
+    const [choices, setChoices] = useState<EventCatalog[]>([]);
+    const [eventLoaded, setEventLoaded] = useState(false);
+    const [eventPricing, setEventPricing] = useState<EventPricing>(DEFAULT_JUBILEE_PRICING);
+    const [eventError, setEventError] = useState('');
+    const [hasSavedReg, setHasSavedReg] = useState(false);
 
     const router = useRouter();
+    const searchParams = useSearchParams();
     const supabase = createClient();
 
-    // Check auth on mount
+    useEffect(() => {
+        async function loadEvent() {
+            const fromQuery = searchParams.get('event');
+            setEventLoaded(false);
+            try {
+                if (fromQuery) {
+                    const res = await fetch(`/api/events/${fromQuery}`, { cache: 'no-store' });
+                    const row = res.ok ? ((await res.json()) as EventCatalog) : null;
+                    if (!row || !eventIsOpen(row, new Date())) {
+                        setEvent(null);
+                        setEventError('This event is not available for registration.');
+                        return;
+                    }
+                    setEvent(row);
+                    setEventPricing(eventToPricing(row));
+                    setEventError('');
+                    return;
+                }
+                const listRes = await fetch('/api/events', { cache: 'no-store' });
+                if (!listRes.ok) {
+                    setEventError('Events are not available yet.');
+                    return;
+                }
+                const list = (await listRes.json()) as EventCatalog[];
+                setChoices(list);
+                const chosen = chooseRegistrationEvent(list);
+                if (!list.length) {
+                    setEvent(null);
+                    setEventError('No published events are open for registration.');
+                    return;
+                }
+                if (!chosen) {
+                    setEvent(null);
+                    setEventError('');
+                    return;
+                }
+                setEvent(chosen);
+                setEventPricing(eventToPricing(chosen));
+                setEventError('');
+            } catch {
+                setEventError('Could not load event details.');
+            } finally {
+                setEventLoaded(true);
+            }
+        }
+        void loadEvent();
+    }, [searchParams]);
+
+    // Check table-based session on mount
     useEffect(() => {
         async function checkAuth() {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
+            try {
+                const res = await fetch('/api/auth/me');
+                if (!res.ok) {
+                    setLoading(false);
+                    setCurrentStep('phone');
+                    return;
+                }
 
-            if (!user) {
-                setLoading(false);
-                setCurrentStep('phone');
-                return;
-            }
+                const profile = await res.json();
+                setUser({
+                    id: profile.id,
+                    email: profile.email,
+                    role: profile.role,
+                    jubilee_reg_status: profile.jubilee_reg_status || 'none',
+                });
 
-            setUser(user);
+                if (profile.role === 'admin') {
+                    setGate('admin');
+                    return;
+                }
+                setGate('ok');
 
-            // Fetch user profile
-            const { data: profile } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', user.id)
-                .single();
-
-            if (profile) {
+                const split = splitE164(profile.phone_number || '');
+                setPhoneIsd(split.isd);
+                setPhoneNational(split.national);
+                const loc = parseLocation(profile.current_location || '');
                 setFormData((prev) => ({
                     ...prev,
-                    email: user.email || '',
+                    email: profile.email || '',
                     phone_number: profile.phone_number || '',
                     full_name: profile.full_name || '',
                     last_name: profile.last_name || '',
-                    batch: profile.batch,
+                    batch: profile.batch ?? undefined,
                     section: profile.section || '',
-                    current_location: profile.current_location || '',
+                    city: loc.city,
+                    country: loc.country,
                 }));
 
-                // Try to prefill from pre_registrations
                 await prefillFromPreRegistration(
-                    profile.phone_number,
-                    user.email || ''
+                    profile.phone_number || '',
+                    profile.email || ''
                 );
                 setCurrentStep('details');
+            } catch {
+                setCurrentStep('phone');
+            } finally {
+                setLoading(false);
             }
-
-            setLoading(false);
         }
 
         checkAuth();
     }, []);
+
+    // Pull saved profile + event registration so "Complete payment" reopens all details.
+    useEffect(() => {
+        if (!user?.id || !event?.id || gate !== 'ok') return;
+        let active = true;
+        (async () => {
+            try {
+                const res = await fetch(
+                    `/api/registration/event?eventId=${encodeURIComponent(event.id)}`
+                );
+                if (!res.ok || !active) return;
+                const payload = await res.json().catch(() => ({}));
+                if (!payload.registration || !active) return;
+                const merged = mergeRegistrationPrefill(payload.profile, payload.registration);
+                const reg = payload.registration as {
+                    id?: string;
+                    amount_paid_paise?: number;
+                    amount_due_paise?: number;
+                    payment_status?: string;
+                    registration_code?: string | null;
+                };
+                setHasSavedReg(true);
+                setRegistrationId(reg.id || null);
+                setRegistrationCode(reg.registration_code || null);
+                setAmountPaid(Math.max(0, Number(reg.amount_paid_paise) || 0));
+                setPaymentStatus(merged.payment_status || null);
+                const due = Math.max(0, Number(reg.amount_due_paise) || 0);
+                setLastDue(due);
+                if ((merged.payment_status === 'paid' || reg.payment_status === 'paid') && due === 0) {
+                    setCurrentStep('success');
+                }
+                const loadedChoices = {
+                    number_of_guests: partySize(merged.number_of_guests),
+                    food_preference: merged.food_preference,
+                    parking_needed: merged.parking_needed,
+                    lunch: merged.lunch,
+                    dinner: merged.dinner,
+                    attending: merged.attending,
+                };
+                setSavedFingerprint(
+                    choicesFingerprint({
+                        phone_number: '',
+                        full_name: '',
+                        last_name: '',
+                        section: '',
+                        city: '',
+                        country: '',
+                        email: '',
+                        ...loadedChoices,
+                    })
+                );
+                setFormData((prev) => ({
+                    ...prev,
+                    full_name: merged.full_name || prev.full_name,
+                    last_name: merged.last_name || prev.last_name,
+                    email: merged.email || prev.email,
+                    phone_number: merged.phone_number || prev.phone_number,
+                    batch: merged.batch ?? prev.batch,
+                    // Prefer saved registration profile (includes bio-unpacked section).
+                    section: merged.section || prev.section || '',
+                    city: merged.city || prev.city,
+                    country: merged.country || prev.country,
+                    ...loadedChoices,
+                }));
+                if (merged.phone_number) {
+                    const split = splitE164(merged.phone_number);
+                    setPhoneIsd(split.isd);
+                    setPhoneNational(split.national);
+                }
+            } catch {
+                // Keep profile/pre-reg prefill if registration row is unavailable.
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [user?.id, event?.id, gate]);
 
     // Prefill logic
     async function prefillFromPreRegistration(
@@ -150,13 +358,15 @@ export default function RegistrationPage() {
 
                 // Exact match: auto-prefill
                 if (match.match_type === 'exact') {
+                    const loc = parseLocation(match.current_location || '');
                     setFormData((prev) => ({
                         ...prev,
                         full_name: match.full_name || prev.full_name,
                         last_name: match.last_name || prev.last_name,
                         batch: match.batch || prev.batch,
                         section: match.section || prev.section,
-                        current_location: match.current_location || prev.current_location,
+                        city: loc.city || prev.city,
+                        country: loc.country || prev.country,
                         food_preference: (match.food_preference as 'veg' | 'non-veg') ||
                             prev.food_preference,
                     }));
@@ -174,9 +384,11 @@ export default function RegistrationPage() {
         e.preventDefault();
         setError('');
 
-        const normalized = normalizePhoneNumber(phoneInput);
+        const normalized =
+            normalizePhoneNumber(phoneInput) ||
+            (phoneInput.trim().startsWith('+') ? null : normalizePhoneNumber(`+${phoneInput.trim()}`));
         if (!normalized) {
-            setError('Invalid phone number format');
+            setError('Enter phone as +ISD and number (example +919876543210)');
             return;
         }
 
@@ -210,69 +422,356 @@ export default function RegistrationPage() {
         }
     }
 
-    // Update cost when meals/guests change
-    useEffect(() => {
-        const cost = calculateRegistrationCost({
-            numberOfGuests: formData.number_of_guests,
-            lunch: formData.lunch,
-            dinner: formData.dinner,
-            parkingNeeded: formData.parking_needed,
-        });
-        setTotalCost(cost);
-    }, [formData.number_of_guests, formData.lunch, formData.dinner, formData.parking_needed]);
+    const costBreakdown = getEventCostBreakdown(eventPricing, {
+        numberOfGuests: formData.number_of_guests,
+        lunch: formData.lunch,
+        dinner: formData.dinner,
+        parkingNeeded: formData.parking_needed,
+        foodPreference: formData.food_preference,
+    });
+    const totalCost = costBreakdown.totalCost;
 
-    // Handle registration submission
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        if (!user) return;
+    function choicesFingerprint(data: FormData) {
+        return [
+            data.number_of_guests,
+            data.lunch,
+            data.dinner,
+            data.parking_needed,
+            data.food_preference,
+            data.attending,
+        ].join('|');
+    }
 
-        setSubmitting(true);
+    function validateRegistrationForm(): { ok: true; e164: string } | { ok: false } {
+        const email = normalizeEmail(formData.email);
+        if (!isPublicEmail(email)) {
+            setError(
+                'Use a public email address (Gmail, Yahoo, Outlook, iCloud, Proton, Rediffmail, AOL, or Zoho)'
+            );
+            return { ok: false };
+        }
+
+        const phoneErr = phoneValidationError(phoneIsd, phoneNational);
+        const e164 = phoneErr ? null : toE164(phoneIsd, phoneNational);
+        if (phoneErr || !e164) {
+            setError(phoneErr || 'Enter a valid phone number with country code (ISD) and national number');
+            return { ok: false };
+        }
+        if (!formData.full_name.trim()) {
+            setError('Full name is required');
+            return { ok: false };
+        }
+        if (!isValidBatch(formData.batch)) {
+            setError('Select your batch year');
+            return { ok: false };
+        }
+        if (!isValidSection(formData.section)) {
+            setError('Select your section (A–D)');
+            return { ok: false };
+        }
+        if (!formData.city.trim()) {
+            setError('City is required');
+            return { ok: false };
+        }
+        if (!formData.country.trim()) {
+            setError('Country is required');
+            return { ok: false };
+        }
+        if (!formData.lunch && !formData.dinner) {
+            setError('Select at least one meal (Lunch or Dinner)');
+            return { ok: false };
+        }
+        if (!formatLocation(formData.city, formData.country)) {
+            setError('City and country are required');
+            return { ok: false };
+        }
+        if (!event?.id) {
+            setError(eventError || 'No event selected for registration');
+            return { ok: false };
+        }
+        return { ok: true, e164 };
+    }
+
+    /** Persist only — never opens Checkout. Returns the new amount due, or null if save failed. */
+    async function saveRegistration(e?: React.FormEvent): Promise<number | null> {
+        e?.preventDefault();
+        if (!user || saving || paying) return null;
+
+        setSaving(true);
         setError('');
+        setSaveMessage('');
+
+        const valid = validateRegistrationForm();
+        if (!valid.ok) {
+            setSaving(false);
+            return null;
+        }
 
         try {
-            const { data: registration, error: regError } = await supabase
-                .from('registrations')
-                .insert([
-                    {
-                        event_id: '5a3cd9a3-af14-4750-a768-7d803e3622f8',
-                        user_id: user.id,
-                        phone_number: formData.phone_number,
-                        number_of_guests: formData.number_of_guests,
-                        food_preference: formData.food_preference,
-                        parking_needed: formData.parking_needed,
-                        lunch: formData.lunch,
-                        dinner: formData.dinner,
-                        total_cost: totalCost,
-                        payment_status: 'pending',
-                        attending: formData.attending,
-                        pre_registration_id: preRegData?.id || null,
-                    },
-                ])
-                .select();
-
-            if (regError) {
-                setError(regError.message);
-                setSubmitting(false);
-                return;
+            const statusRes = await fetch('/api/registration/event', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    eventId: event!.id,
+                    phone_number: valid.e164,
+                    full_name: formData.full_name.trim(),
+                    last_name: formData.last_name.trim(),
+                    batch: formData.batch,
+                    section: formData.section,
+                    city: formData.city.trim(),
+                    country: formData.country.trim(),
+                    number_of_guests: formData.number_of_guests,
+                    food_preference: formData.food_preference,
+                    parking_needed: formData.parking_needed,
+                    lunch: formData.lunch,
+                    dinner: formData.dinner,
+                    attending: formData.attending,
+                }),
+            });
+            const statusPayload = await statusRes.json().catch(() => ({}));
+            if (!statusRes.ok) {
+                setError(statusPayload.error || 'Could not save registration');
+                setSaving(false);
+                return null;
             }
 
-            // TODO: Integrate with Razorpay to create order
-            // const order = await createRazorpayOrder(registration[0].id, totalCost);
-
-            setSubmitting(false);
-            setCurrentStep('success');
-        } catch (err) {
-            setError('An error occurred. Please try again.');
-            setSubmitting(false);
+            const regId = String(statusPayload.id || registrationId || '');
+            const paidNow = Math.max(0, Number(statusPayload.amount_paid_paise) || 0);
+            const dueNow = Math.max(
+                0,
+                Number(statusPayload.amount_due_paise) ??
+                    amountDuePaise(Number(statusPayload.total_cost_paise) || totalCost, paidNow)
+            );
+            setRegistrationId(regId || null);
+            setAmountPaid(paidNow);
+            setPaymentStatus(String(statusPayload.payment_status || ''));
+            setLastDue(dueNow);
+            setHasSavedReg(true);
+            setSavedFingerprint(choicesFingerprint(formData));
+            setSaveMessage(
+                dueNow > 0
+                    ? `Saved. Amount due ${formatCostForDisplay(dueNow)} — tap Pay when ready.`
+                    : 'Saved. Your registration is up to date.'
+            );
+            setSaving(false);
+            return dueNow;
+        } catch {
+            setError('Could not save registration. Please try again.');
+            setSaving(false);
+            return null;
         }
     }
 
-    if (loading) {
+    /** Pay Due only — uses already-saved registration; does not re-save. */
+    async function payDue(opts?: { due?: number; alreadySaved?: boolean }) {
+        if (!user || saving || paying) return;
+        setError('');
+        setSaveMessage('');
+        const due = opts?.due ?? lastDue;
+
+        if (!registrationId) {
+            setError('Save your registration first, then pay.');
+            return;
+        }
+        if (!opts?.alreadySaved && choicesFingerprint(formData) !== savedFingerprint) {
+            setError('You have unsaved changes. Save first, then pay.');
+            return;
+        }
+        if (due <= 0) {
+            setError('Nothing due right now.');
+            return;
+        }
+
+        setPaying(true);
+        try {
+            const orderRes = await fetch('/api/payments/create-order', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ registrationId }),
+            });
+            const orderPayload = await orderRes.json().catch(() => ({}));
+
+            if (orderRes.status === 503 || orderPayload.configured === false) {
+                setError(
+                    orderPayload.error ||
+                        'Payments are not configured yet. Your registration is already saved — the committee can mark payment, or try again after Razorpay keys are added.'
+                );
+                setPaying(false);
+                return;
+            }
+
+            if (orderRes.ok && orderPayload.skipCheckout) {
+                setLastDue(0);
+                setPaymentStatus('paid');
+                setRegistrationCode(orderPayload.registration_code || null);
+                setAmountPaid(Math.max(0, Number(orderPayload.amount_paid_paise) || amountPaid));
+                setPaying(false);
+                setCurrentStep('success');
+                return;
+            }
+
+            if (!orderRes.ok) {
+                setError(orderPayload.error || 'Could not start payment. Your registration is still saved.');
+                setPaying(false);
+                return;
+            }
+
+            const e164 = toE164(phoneIsd, phoneNational) || formData.phone_number;
+            const checkoutResult = await openRazorpayCheckout({
+                orderId: orderPayload.orderId,
+                amount: orderPayload.amount,
+                currency: orderPayload.currency || 'INR',
+                keyId: orderPayload.keyId,
+                name: orderPayload.name || formData.full_name,
+                email: orderPayload.email || formData.email,
+                contact: orderPayload.contact || e164,
+            });
+
+            if (!checkoutResult) {
+                setError('Payment cancelled. Your registration is saved — tap Pay to try again.');
+                setPaying(false);
+                return;
+            }
+
+            if ('failed' in checkoutResult) {
+                setError(`${checkoutResult.message} Your registration is still saved.`);
+                setPaying(false);
+                return;
+            }
+
+            const verifyRes = await fetch('/api/payments/verify', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    registrationId,
+                    razorpay_order_id: checkoutResult.razorpay_order_id,
+                    razorpay_payment_id: checkoutResult.razorpay_payment_id,
+                    razorpay_signature: checkoutResult.razorpay_signature,
+                }),
+            });
+            const verifyPayload = await verifyRes.json().catch(() => ({}));
+            if (!verifyRes.ok) {
+                setError(
+                    (verifyPayload.error || 'Payment could not be verified') +
+                        ' Your registration is still saved.'
+                );
+                setPaying(false);
+                return;
+            }
+            setAmountPaid(Math.max(0, Number(verifyPayload.amount_paid_paise) || amountPaid));
+            setLastDue(Math.max(0, Number(verifyPayload.amount_due_paise) || 0));
+            setPaymentStatus(String(verifyPayload.payment_status || 'paid'));
+            if (verifyPayload.registration_code) setRegistrationCode(String(verifyPayload.registration_code));
+            setPaying(false);
+            setCurrentStep('success');
+        } catch {
+            setError('Payment failed. Your registration is still saved — tap Pay to try again.');
+            setPaying(false);
+        }
+    }
+
+    async function savePartySize() {
+        const due = await saveRegistration();
+        if (due == null) return;
+        if (due > 0) await payDue({ due, alreadySaved: true });
+    }
+
+    const liveDue = amountDuePaise(totalCost, amountPaid);
+    const formDirty = !savedFingerprint || choicesFingerprint(formData) !== savedFingerprint;
+    const priceDrift = Boolean(savedFingerprint) && liveDue !== lastDue;
+    const canPay = Boolean(registrationId) && lastDue > 0 && !formDirty && !priceDrift;
+    const busy = saving || paying;
+    const formMode =
+        paymentStatus === 'paid' || paymentStatus === 'partial' || hasSavedReg
+            ? paymentStatus === 'paid' && liveDue === 0
+                ? 'update'
+                : 'pay'
+            : 'new';
+
+    if (loading || !eventLoaded) {
         return (
             <div className="min-h-screen bg-surface flex items-center justify-center pt-20">
                 <div className="text-center">
                     <div className="w-12 h-12 rounded-full border-4 border-primary border-t-secondary-container animate-spin mx-auto mb-4"></div>
                     <p className="text-body-md text-on-surface-variant">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (gate === 'admin') {
+        return (
+            <div className="min-h-screen bg-surface flex items-center justify-center px-6 pt-20">
+                <div className="w-full max-w-md bg-surface-paper rounded-2xl shadow-lg p-8 border border-surface-container-low text-center">
+                    <span className="material-symbols-outlined text-[48px] text-jubilee-gold-deep mx-auto block mb-4">
+                        admin_panel_settings
+                    </span>
+                    <h1 className="text-headline-lg text-primary mb-3">Committee account</h1>
+                    <p className="text-body-md text-on-surface-variant mb-8">
+                        Alumni committee accounts manage memberships and do not register for the reunion
+                        through this form.
+                    </p>
+                    <Link
+                        href="/admin"
+                        className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary text-on-primary text-label-md uppercase tracking-wider"
+                    >
+                        Go to admin
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    if (!event && choices.length > 1) {
+        return (
+            <div className="min-h-screen bg-surface px-6 pt-28 pb-16">
+                <div className="max-w-3xl mx-auto">
+                    <h1 className="text-headline-lg text-primary mb-2">Choose an event</h1>
+                    <p className="text-body-md text-on-surface-variant mb-8">
+                        Registration is separate for each event. Pick the one you want to attend.
+                    </p>
+                    <div className="grid gap-4">
+                        {choices.map((choice) => (
+                            <article
+                                key={choice.id}
+                                className="rounded-2xl bg-surface-paper border border-primary/10 p-6 shadow-sm"
+                            >
+                                <div className="text-label-sm uppercase tracking-widest text-jubilee-gold-deep font-bold">
+                                    {new Date(choice.starts_at).toLocaleDateString('en-IN', {
+                                        day: 'numeric',
+                                        month: 'long',
+                                        year: 'numeric',
+                                    })}
+                                </div>
+                                <h2 className="text-headline-sm text-primary mt-2">{choice.title}</h2>
+                                <p className="text-body-sm text-navy-subtle mt-2">{choice.summary}</p>
+                                <p className="text-label-sm text-navy-subtle mt-3">{mealPriceSummary(choice)}</p>
+                                <Link
+                                    href={registrationPath(choice.id)}
+                                    className="inline-flex mt-5 rounded-lg bg-secondary-container text-on-secondary-container hover:bg-secondary-fixed px-4 py-2.5 text-label-sm font-bold"
+                                >
+                                    Register
+                                </Link>
+                            </article>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (eventError && !event) {
+        return (
+            <div className="min-h-screen bg-surface flex items-center justify-center px-6 pt-20">
+                <div className="w-full max-w-md bg-surface-paper rounded-2xl shadow-lg p-8 border border-surface-container-low text-center">
+                    <h1 className="text-headline-lg text-primary mb-3">Event unavailable</h1>
+                    <p className="text-body-md text-on-surface-variant mb-8">{eventError}</p>
+                    <Link
+                        href="/events"
+                        className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary text-on-primary text-label-md uppercase tracking-wider"
+                    >
+                        View events
+                    </Link>
                 </div>
             </div>
         );
@@ -300,7 +799,7 @@ export default function RegistrationPage() {
 
                         <div className="flex flex-col gap-3 mb-6">
                             <Link
-                                href="/signup"
+                                href={event ? `/signup?next=${encodeURIComponent(registrationPath(event.id))}` : '/signup'}
                                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-secondary-container hover:bg-secondary-fixed-dim text-on-secondary-fixed text-label-md uppercase tracking-wider shadow-md transition-all"
                             >
                                 <span className="material-symbols-outlined text-[20px]">
@@ -310,7 +809,7 @@ export default function RegistrationPage() {
                             </Link>
 
                             <Link
-                                href="/login"
+                                href={event ? `/login?next=${encodeURIComponent(registrationPath(event.id))}` : '/login'}
                                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-primary hover:bg-navy-subtle text-on-primary text-label-md uppercase tracking-wider shadow-md transition-all"
                             >
                                 <span className="material-symbols-outlined text-[20px]">
@@ -384,13 +883,15 @@ export default function RegistrationPage() {
                             <button
                                 onClick={() => {
                                     // Accept and use pre-reg data
+                                    const loc = parseLocation(preRegData.current_location || '');
                                     setFormData((prev) => ({
                                         ...prev,
                                         full_name: preRegData.full_name,
                                         last_name: preRegData.last_name || '',
                                         batch: preRegData.batch,
                                         section: preRegData.section || '',
-                                        current_location: preRegData.current_location || '',
+                                        city: loc.city,
+                                        country: loc.country,
                                         food_preference: (preRegData.food_preference as 'veg' | 'non-veg') || 'veg',
                                     }));
                                     setCurrentStep('details');
@@ -423,13 +924,30 @@ export default function RegistrationPage() {
                 <div className="w-full max-w-2xl">
                     <div className="bg-surface-paper rounded-2xl shadow-lg p-8 border border-surface-container-low">
                         <h1 className="text-headline-lg text-primary mb-2">
-                            Event Registration
+                            {formMode === 'update'
+                                ? 'Update party'
+                                : formMode === 'pay'
+                                  ? 'Complete payment'
+                                  : 'Event Registration'}
                         </h1>
-                        <p className="text-body-sm text-on-surface-variant mb-8">
-                            Complete your registration for the Golden Jubilee
+                        <p
+                            className={`text-body-sm text-on-surface-variant ${hasSavedReg ? 'mb-4' : 'mb-8'}`}
+                        >
+                            {hasSavedReg
+                                ? 'Change the number of people, meals, or parking anytime. Save first — then pay only the difference if anything is due.'
+                                : event
+                                  ? `Register for ${event.title}`
+                                  : 'Complete your registration for the Golden Jubilee'}
                         </p>
+                        {hasSavedReg && (
+                            <p className="rounded-xl border border-jubilee-gold-light bg-secondary-container/30 p-4 text-body-sm text-on-secondary-fixed-variant mb-8">
+                                Saved registration loaded
+                                {paymentStatus ? ` · status: ${paymentStatus}` : ''}. Adjust party size
+                                below, tap Save, then Pay if a balance remains.
+                            </p>
+                        )}
 
-                        <form onSubmit={handleSubmit} className="space-y-6">
+                        <form onSubmit={saveRegistration} className="space-y-6">
                             {/* Personal Info Section */}
                             <div>
                                 <h2 className="text-headline-sm text-primary mb-4 uppercase tracking-wider">
@@ -448,7 +966,7 @@ export default function RegistrationPage() {
                                                 setFormData({ ...formData, full_name: e.target.value })
                                             }
                                             required
-                                            disabled={submitting}
+                                            disabled={busy}
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
                                         />
                                     </div>
@@ -463,62 +981,157 @@ export default function RegistrationPage() {
                                             onChange={(e) =>
                                                 setFormData({ ...formData, last_name: e.target.value })
                                             }
-                                            disabled={submitting}
-                                            className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-col">
-                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                            Batch (Year)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={formData.batch || ''}
-                                            onChange={(e) =>
-                                                setFormData({
-                                                    ...formData,
-                                                    batch: e.target.value ? parseInt(e.target.value) : undefined,
-                                                })
-                                            }
-                                            placeholder="e.g., 2010"
-                                            disabled={submitting}
-                                            className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-col">
-                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                            Section
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.section}
-                                            onChange={(e) =>
-                                                setFormData({ ...formData, section: e.target.value })
-                                            }
-                                            placeholder="e.g., A, B, C"
-                                            disabled={submitting}
+                                            disabled={busy}
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
                                         />
                                     </div>
 
                                     <div className="md:col-span-2 flex flex-col">
                                         <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                            Current Location
+                                            Email *
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={formData.email}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, email: e.target.value })
+                                            }
+                                            placeholder="you@gmail.com"
+                                            required
+                                            disabled={busy}
+                                            className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
+                                        />
+                                        <p className="text-label-sm text-on-surface-variant mt-1">
+                                            Public email only (Gmail, Yahoo, Outlook, iCloud, Proton, Rediffmail, AOL, Zoho)
+                                        </p>
+                                    </div>
+
+                                    <div className="md:col-span-2 flex flex-col">
+                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                            Phone Number *
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={phoneIsd}
+                                                onChange={(e) => setPhoneIsd(e.target.value)}
+                                                required
+                                                disabled={busy}
+                                                aria-label="Country calling code"
+                                                className="w-[9.5rem] shrink-0 px-2 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
+                                            >
+                                                {COUNTRY_CALLING_CODES.map((c) => (
+                                                    <option key={c.code} value={c.code}>
+                                                        {c.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                type="tel"
+                                                value={phoneNational}
+                                                onChange={(e) =>
+                                                    setPhoneNational(e.target.value.replace(/\D/g, ''))
+                                                }
+                                                placeholder="9876543210"
+                                                required
+                                                disabled={busy}
+                                                inputMode="numeric"
+                                                autoComplete="tel-national"
+                                                maxLength={12}
+                                                aria-label="National phone number"
+                                                aria-invalid={Boolean(
+                                                    phoneNational && phoneValidationError(phoneIsd, phoneNational)
+                                                )}
+                                                className="min-w-0 flex-1 px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
+                                            />
+                                        </div>
+                                        <p
+                                            className={`text-label-sm mt-1 ${
+                                                phoneNational &&
+                                                phoneValidationError(phoneIsd, phoneNational)
+                                                    ? 'text-error'
+                                                    : 'text-on-surface-variant'
+                                            }`}
+                                        >
+                                            {phoneNational &&
+                                            phoneValidationError(phoneIsd, phoneNational)
+                                                ? phoneValidationError(phoneIsd, phoneNational)
+                                                : phoneInputHint(phoneIsd)}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                            Batch (Year) *
+                                        </label>
+                                        <SearchableSelect
+                                            options={BATCH_OPTIONS}
+                                            value={formData.batch != null ? String(formData.batch) : ''}
+                                            onChange={(v) =>
+                                                setFormData({
+                                                    ...formData,
+                                                    batch: v ? parseInt(v, 10) : undefined,
+                                                })
+                                            }
+                                            placeholder="Type to search batch year…"
+                                            required
+                                            disabled={busy}
+                                            aria-label="Batch year"
+                                            emptyLabel="No matching batch year"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                            Section *
+                                        </label>
+                                        <select
+                                            value={formData.section}
+                                            onChange={(e) =>
+                                                setFormData({ ...formData, section: e.target.value })
+                                            }
+                                            required
+                                            disabled={busy}
+                                            className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
+                                        >
+                                            <option value="">Select section</option>
+                                            {SECTIONS.map((s) => (
+                                                <option key={s} value={s}>
+                                                    {s}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                            City *
                                         </label>
                                         <input
                                             type="text"
-                                            value={formData.current_location}
+                                            value={formData.city}
                                             onChange={(e) =>
-                                                setFormData({
-                                                    ...formData,
-                                                    current_location: e.target.value,
-                                                })
+                                                setFormData({ ...formData, city: e.target.value })
                                             }
-                                            placeholder="City, Country"
-                                            disabled={submitting}
+                                            placeholder="City"
+                                            required
+                                            disabled={busy}
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col">
+                                        <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                            Country *
+                                        </label>
+                                        <SearchableSelect
+                                            options={COUNTRY_OPTIONS}
+                                            value={formData.country}
+                                            onChange={(v) => setFormData({ ...formData, country: v })}
+                                            placeholder="Type to search country…"
+                                            required
+                                            disabled={busy}
+                                            aria-label="Country"
+                                            emptyLabel="No matching country"
                                         />
                                     </div>
                                 </div>
@@ -533,24 +1146,24 @@ export default function RegistrationPage() {
                                 <div className="space-y-4">
                                     <div className="flex flex-col">
                                         <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                            Number of Guests *
+                                            Number of people *
                                         </label>
                                         <input
                                             type="number"
-                                            min="0"
+                                            min={1}
                                             value={formData.number_of_guests}
                                             onChange={(e) =>
                                                 setFormData({
                                                     ...formData,
-                                                    number_of_guests: parseInt(e.target.value) || 0,
+                                                    number_of_guests: partySize(parseInt(e.target.value, 10)),
                                                 })
                                             }
                                             required
-                                            disabled={submitting}
+                                            disabled={busy}
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
                                         />
                                         <p className="text-label-sm text-on-surface-variant mt-1">
-                                            How many guests will attend (excluding yourself)?
+                                            Include yourself. Lunch and dinner are charged for each person.
                                         </p>
                                     </div>
 
@@ -572,7 +1185,7 @@ export default function RegistrationPage() {
                                                                 food_preference: e.target.value as 'veg' | 'non-veg',
                                                             })
                                                         }
-                                                        disabled={submitting}
+                                                        disabled={busy}
                                                         className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
                                                     />
                                                     <span className="text-body-sm text-on-surface capitalize">
@@ -595,10 +1208,12 @@ export default function RegistrationPage() {
                                                     onChange={(e) =>
                                                         setFormData({ ...formData, lunch: e.target.checked })
                                                     }
-                                                    disabled={submitting}
+                                                    disabled={busy}
                                                     className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
                                                 />
-                                                <span className="text-body-sm text-on-surface">Lunch</span>
+                                                <span className="text-body-sm text-on-surface">
+                                                    {mealChoiceLabel('Lunch', eventPricing.lunch_paise, eventPricing.lunch_nonveg_paise, formData.food_preference)}
+                                                </span>
                                             </label>
                                             <label className="flex items-center gap-3">
                                                 <input
@@ -607,10 +1222,12 @@ export default function RegistrationPage() {
                                                     onChange={(e) =>
                                                         setFormData({ ...formData, dinner: e.target.checked })
                                                     }
-                                                    disabled={submitting}
+                                                    disabled={busy}
                                                     className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
                                                 />
-                                                <span className="text-body-sm text-on-surface">Dinner</span>
+                                                <span className="text-body-sm text-on-surface">
+                                                    {mealChoiceLabel('Dinner', eventPricing.dinner_paise, eventPricing.dinner_nonveg_paise, formData.food_preference)}
+                                                </span>
                                             </label>
                                         </div>
                                     </div>
@@ -622,8 +1239,8 @@ export default function RegistrationPage() {
                                         <div className="flex flex-col gap-2">
                                             {(
                                                 [
-                                                    { value: '2-wheeler', label: '2-Wheeler' },
-                                                    { value: '4-wheeler', label: '4-Wheeler' },
+                                                    { value: '2-wheeler', label: `2-Wheeler · ₹${(eventPricing.parking_2w_paise / 100).toFixed(0)}` },
+                                                    { value: '4-wheeler', label: `4-Wheeler · ₹${(eventPricing.parking_4w_paise / 100).toFixed(0)}` },
                                                     { value: 'none', label: 'No Vehicle' },
                                                 ] as const
                                             ).map((option) => (
@@ -645,7 +1262,7 @@ export default function RegistrationPage() {
                                                                     | 'none',
                                                             })
                                                         }
-                                                        disabled={submitting}
+                                                        disabled={busy}
                                                         className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
                                                     />
                                                     <span className="text-body-sm text-on-surface">
@@ -659,41 +1276,84 @@ export default function RegistrationPage() {
                             </div>
 
                             {/* Cost Summary */}
-                            <div className="bg-surface-container-low rounded-lg p-6">
+                            <div className="bg-surface-container-low rounded-lg p-6 space-y-3">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-headline-sm text-primary">Total Cost:</span>
-                                    <span className="text-headline-md text-jubilee-gold-deep">
-                                        ₹{(totalCost / 100).toFixed(2)}
+                                    <span className="text-body-md text-on-surface-variant">Total</span>
+                                    <span className="text-headline-sm text-primary tabular-nums">
+                                        {formatCostForDisplay(totalCost)}
                                     </span>
                                 </div>
-                                <p className="text-label-sm text-on-surface-variant mt-2">
-                                    {formData.number_of_guests + 1} person(s) ×{' '}
-                                    {formData.lunch && formData.dinner
-                                        ? 'Lunch + Dinner'
-                                        : formData.lunch
-                                            ? 'Lunch'
-                                            : formData.dinner
-                                                ? 'Dinner'
-                                                : 'No meals'}{' '}
-                                    + Parking
-                                </p>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-body-md text-on-surface-variant">Already paid</span>
+                                    <span className="text-body-md text-on-surface tabular-nums">
+                                        {formatCostForDisplay(amountPaid)}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center border-t border-outline-variant pt-3">
+                                    <span className="text-headline-sm text-primary">Due now</span>
+                                    <span className="text-headline-md text-jubilee-gold-deep tabular-nums">
+                                        {formatCostForDisplay(liveDue)}
+                                    </span>
+                                </div>
+                                <p className="text-label-sm text-on-surface-variant">{costBreakdown.details}</p>
                             </div>
+
+                            {saveMessage && !error && (
+                                <div
+                                    role="status"
+                                    className="p-3 rounded-lg border border-jubilee-gold-light bg-secondary-container/30 text-body-sm text-on-secondary-fixed-variant"
+                                >
+                                    {saveMessage}
+                                </div>
+                            )}
 
                             {/* Error */}
                             {error && (
-                                <div className="p-3 rounded-lg bg-error-container text-error text-body-sm">
+                                <div
+                                    role="alert"
+                                    className="p-3 rounded-lg bg-error-container text-error text-body-sm"
+                                >
                                     {error}
                                 </div>
                             )}
 
-                            {/* Submit Button */}
-                            <button
-                                type="submit"
-                                disabled={submitting || !formData.full_name}
-                                className="w-full py-3 rounded-lg bg-primary text-on-primary text-label-md uppercase tracking-wider font-bold hover:bg-navy-subtle disabled:bg-surface-container disabled:text-on-surface-variant transition-all"
-                            >
-                                {submitting ? 'Processing...' : 'Continue to Payment'}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <button
+                                    type="submit"
+                                    disabled={busy}
+                                    className="flex-1 py-3 rounded-lg bg-primary text-on-primary text-label-md uppercase tracking-wider font-bold hover:bg-navy-subtle disabled:bg-surface-container disabled:text-on-surface-variant transition-all"
+                                >
+                                    {saving ? 'Saving…' : hasSavedReg ? 'Save changes' : 'Save registration'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void payDue()}
+                                    disabled={busy || !canPay}
+                                    title={
+                                        !registrationId
+                                            ? 'Save first'
+                                            : formDirty
+                                              ? 'Save your changes before paying'
+                                              : priceDrift
+                                                ? 'Save so the new event rates apply before paying'
+                                                : lastDue <= 0
+                                                  ? 'Nothing due'
+                                                  : undefined
+                                    }
+                                    className="flex-1 py-3 rounded-lg bg-secondary-container text-on-secondary-fixed text-label-md uppercase tracking-wider font-bold hover:bg-secondary-fixed disabled:bg-surface-container disabled:text-on-surface-variant transition-all"
+                                >
+                                    {paying
+                                        ? 'Opening payment…'
+                                        : lastDue > 0
+                                          ? `Pay ${formatCostForDisplay(formDirty ? liveDue : lastDue)}`
+                                          : 'Pay'}
+                                </button>
+                            </div>
+                            {(formDirty || priceDrift) && registrationId && liveDue > 0 && (
+                                <p className="text-label-sm text-on-surface-variant text-center">
+                                    Save changes to unlock Pay for the updated amount.
+                                </p>
+                            )}
                         </form>
 
                         <div className="text-center mt-6">
@@ -726,31 +1386,175 @@ export default function RegistrationPage() {
                         </div>
 
                         <h1 className="text-headline-lg text-primary mb-3">
-                            Registration Confirmed!
+                            {lastDue === 0 && paymentStatus === 'paid'
+                                ? 'Registration confirmed'
+                                : 'Registration saved'}
                         </h1>
 
-                        <p className="text-body-md text-on-surface-variant mb-8">
-                            Your registration has been submitted successfully. Proceed to complete the payment to finalize your registration.
+                        {registrationCode && (
+                            <div className="mb-6 rounded-lg border border-outline-variant bg-surface px-4 py-5">
+                                <p className="text-label-md text-primary uppercase tracking-wider">
+                                    Registration ID
+                                </p>
+                                <p className="mt-2 text-headline-md text-primary tracking-[0.18em] font-bold">
+                                    {registrationCode}
+                                </p>
+                                <div className="mt-4 flex justify-center">
+                                    <RegistrationQr code={registrationCode} />
+                                </div>
+                                <p className="mt-3 text-body-sm text-on-surface-variant">
+                                    Show this QR code at the venue.
+                                </p>
+                            </div>
+                        )}
+
+                        <p className="text-body-md text-on-surface-variant mb-6">
+                            {lastDue === 0 && paymentStatus === 'paid'
+                                ? 'You’re confirmed. Add or remove people below — if the total goes up, you only pay the difference.'
+                                : lastDue > 0
+                                  ? 'Your details are saved. Complete the remaining balance when payment is available, or ask the committee to mark paid.'
+                                  : 'Your registration has been updated.'}
                         </p>
 
-                        <div className="bg-surface-container-low rounded-lg p-6 mb-8 text-left">
-                            <p className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Total Amount Due:
-                            </p>
-                            <p className="text-display-xl text-jubilee-gold-deep">
-                                ₹{(totalCost / 100).toFixed(2)}
-                            </p>
+                        <div className="mb-6 rounded-lg border border-outline-variant bg-surface px-4 py-3 text-left">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-label-md text-primary uppercase tracking-wider">
+                                        People attending
+                                    </div>
+                                    <p className="text-label-sm text-on-surface-variant mt-1">Includes you</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        aria-label="Fewer people"
+                                        disabled={busy || formData.number_of_guests <= 1}
+                                        onClick={() =>
+                                            setFormData({
+                                                ...formData,
+                                                number_of_guests: Math.max(1, formData.number_of_guests - 1),
+                                            })
+                                        }
+                                        className="h-11 w-11 rounded-lg border border-outline-variant text-headline-sm text-primary hover:bg-surface-container disabled:opacity-40 cursor-pointer"
+                                    >
+                                        −
+                                    </button>
+                                    <span className="w-8 text-center text-headline-sm text-primary tabular-nums">
+                                        {formData.number_of_guests}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        aria-label="More people"
+                                        disabled={busy}
+                                        onClick={() =>
+                                            setFormData({
+                                                ...formData,
+                                                number_of_guests: formData.number_of_guests + 1,
+                                            })
+                                        }
+                                        className="h-11 w-11 rounded-lg border border-outline-variant text-headline-sm text-primary hover:bg-surface-container disabled:opacity-40 cursor-pointer"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                            {formDirty && (
+                                <p className="text-body-sm text-on-surface-variant mt-3">
+                                    New total {formatCostForDisplay(totalCost)}.
+                                    {liveDue > 0
+                                        ? ` Pay ${formatCostForDisplay(liveDue)} more.`
+                                        : ' Nothing more to pay.'}
+                                </p>
+                            )}
+                            {priceDrift && !formDirty && (
+                                <p className="text-body-sm text-on-surface-variant mt-3">
+                                    Event rates changed. New total {formatCostForDisplay(totalCost)}.
+                                    {liveDue > 0
+                                        ? ` Pay ${formatCostForDisplay(liveDue)} more.`
+                                        : ' Nothing more to pay.'}
+                                </p>
+                            )}
                         </div>
 
-                        <Link
-                            href="/"
-                            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-primary hover:bg-navy-subtle text-on-primary text-label-md uppercase tracking-wider shadow-md transition-all"
-                        >
-                            <span className="material-symbols-outlined text-[20px]">
-                                home
-                            </span>
-                            Back to Home
-                        </Link>
+                        <div className="bg-surface-container-low rounded-lg p-6 mb-8 text-left space-y-2">
+                            <div className="flex justify-between text-body-sm">
+                                <span className="text-on-surface-variant">Total</span>
+                                <span className="tabular-nums">{formatCostForDisplay(totalCost)}</span>
+                            </div>
+                            <div className="flex justify-between text-body-sm">
+                                <span className="text-on-surface-variant">Paid</span>
+                                <span className="tabular-nums">{formatCostForDisplay(amountPaid)}</span>
+                            </div>
+                            <div className="flex justify-between items-baseline border-t border-outline-variant pt-2">
+                                <span className="text-label-md text-primary uppercase tracking-wider">
+                                    Due
+                                </span>
+                                <span className="text-display-xl text-jubilee-gold-deep tabular-nums">
+                                    {formatCostForDisplay(liveDue)}
+                                </span>
+                            </div>
+                            <p className="text-label-sm text-on-surface-variant">{costBreakdown.details}</p>
+                        </div>
+
+                        {error && (
+                            <div
+                                role="alert"
+                                className="p-3 rounded-lg bg-error-container text-error text-body-sm mb-6 text-left"
+                            >
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="flex flex-col gap-3">
+                            {(formDirty || priceDrift) && (
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void savePartySize()}
+                                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-primary hover:bg-navy-subtle text-on-primary text-label-md uppercase tracking-wider shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                                >
+                                    {busy
+                                        ? 'Saving…'
+                                        : priceDrift && !formDirty
+                                          ? liveDue > 0
+                                            ? `Save and pay ${formatCostForDisplay(liveDue)}`
+                                            : 'Save updated rates'
+                                          : liveDue > 0
+                                            ? `Save and pay ${formatCostForDisplay(liveDue)}`
+                                            : 'Save party size'}
+                                </button>
+                            )}
+                            {!formDirty && lastDue > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setError('');
+                                        setSaveMessage('');
+                                        setCurrentStep('details');
+                                    }}
+                                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-primary hover:bg-navy-subtle text-on-primary text-label-md uppercase tracking-wider shadow-md transition-all"
+                                >
+                                    Back to pay balance
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setError('');
+                                    setSaveMessage('');
+                                    setCurrentStep('details');
+                                }}
+                                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-outline-variant text-primary text-label-md uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                                Edit meals or parking
+                            </button>
+                            <Link
+                                href={lastDue === 0 ? '/member' : '/'}
+                                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-outline-variant text-primary text-label-md uppercase tracking-wider transition-all"
+                            >
+                                {lastDue === 0 ? 'Go to alumni portal' : 'Back to Home'}
+                            </Link>
+                        </div>
                     </div>
                 </div>
             </div>

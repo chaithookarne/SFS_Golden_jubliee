@@ -1,0 +1,96 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import type { ReactNode } from 'react';
+
+const LINKS: { href: string; label: string; icon: string; match?: 'exact' | 'prefix' }[] = [
+  { href: '/admin', label: 'Overview', icon: 'dashboard', match: 'exact' },
+  { href: '/admin/check-in', label: 'Check-in', icon: 'qr_code_scanner', match: 'prefix' },
+  { href: '/admin/membership', label: 'Membership', icon: 'group', match: 'prefix' },
+  { href: '/admin/events', label: 'Events', icon: 'event', match: 'prefix' },
+  { href: '/admin/registrations', label: 'Registrations', icon: 'confirmation_number', match: 'prefix' },
+  { href: '/admin/import', label: 'Import', icon: 'upload_file', match: 'prefix' },
+];
+
+function isActive(pathname: string, href: string, match: 'exact' | 'prefix' = 'prefix') {
+  if (match === 'exact') return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export default function AdminShell({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/');
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+      <nav
+        aria-label="Admin sections"
+        className="lg:w-56 shrink-0 flex lg:flex-col gap-1.5 overflow-x-auto pb-2 lg:pb-0 lg:pr-5 lg:border-r border-primary/10"
+      >
+        {LINKS.map((link) => {
+          const active = isActive(pathname, link.href, link.match);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`inline-flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-label-sm transition-colors cursor-pointer ${
+                active
+                  ? 'bg-primary text-on-primary shadow-sm'
+                  : 'text-navy-subtle hover:bg-secondary-container/40 hover:text-primary'
+              }`}
+            >
+              <span
+                className={`material-symbols-outlined text-[18px] ${
+                  active ? 'text-secondary-container' : 'text-jubilee-gold-deep'
+                }`}
+              >
+                {link.icon}
+              </span>
+              {link.label}
+            </Link>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => void handleLogout()}
+          className="mt-2 lg:mt-4 inline-flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-label-sm text-error hover:bg-error-container/40 transition-colors cursor-pointer border border-error/20"
+        >
+          <span className="material-symbols-outlined text-[18px]">logout</span>
+          Logout
+        </button>
+      </nav>
+      <div className="min-w-0 flex-1">
+        <div className="mb-6 border-b border-jubilee-gold-light pb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-label-sm uppercase tracking-[0.16em] text-jubilee-gold-deep font-bold mb-1">
+              Committee tools
+            </p>
+            <h2 className="text-headline-md text-primary">{title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-label-sm uppercase tracking-wider text-error border border-error/30 hover:bg-error-container transition-colors cursor-pointer lg:hidden"
+          >
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+            Logout
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

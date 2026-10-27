@@ -1,0 +1,68 @@
+import { NextResponse } from 'next/server';
+import { requireVerifiedAdmin } from '@/lib/auth/admin-guard';
+import { amountDuePaise } from '@/lib/events/balance';
+import {
+  issueMissingPaidCodes,
+  missingColumn,
+  normalizeRegistrationCode,
+  type RegistrationCodeAdmin,
+} from '@/lib/events/registration-code';
+import { createAdminClient } from '@/lib/supabase-admin';
+
+export async function GET(request: Request) {
+  const me = await requireVerifiedAdmin();
+  if (!me) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  const code = normalizeRegistrationCode(new URL(request.url).searchParams.get('code') || '');
+  if (!code) {
+    return NextResponse.json({ error: 'Enter a registration ID' }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+  await issueMissingPaidCodes(admin as unknown as RegistrationCodeAdmin);
+  const { data, error } = await admin
+    .from('event_registrations')
+    .select(
+      'registration_code,number_of_guests,payment_status,total_cost_paise,amount_paid_paise,event_catalog(title),alumni_accounts(full_name)'
+    )
+    .eq('registration_code', code)
+    .maybeSingle();
+
+  if (error && missingColumn(error)) {
+    return NextResponse.json(
+      { error: 'Registration IDs are not stored yet. Run the registration code migration in Supabase.' },
+      { status: 503 }
+    );
+  }
+  if (error) {
+    console.error('check-in', error);
+    return NextResponse.json({ error: 'Could not look up that ID' }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: 'No registration for that ID' }, { status: 404 });
+  }
+
+  const row = data as {
+    registration_code: string;
+    number_of_guests: number;
+    payment_status: string;
+    total_cost_paise: number;
+    amount_paid_paise?: number;
+    event_catalog: { title: string } | { title: string }[] | null;
+    alumni_accounts: { full_name: string } | { full_name: string }[] | null;
+  };
+  const account = Array.isArray(row.alumni_accounts) ? row.alumni_accounts[0] : row.alumni_accounts;
+  const event = Array.isArray(row.event_catalog) ? row.event_catalog[0] : row.event_catalog;
+  const amount_paid_paise = Math.max(0, Number(row.amount_paid_paise) || 0);
+  const total_cost_paise = Math.max(0, Number(row.total_cost_paise) || 0);
+
+  return NextResponse.json({
+    registration_code: row.registration_code,
+    full_name: account?.full_name || '—',
+    number_of_guests: row.number_of_guests,
+    event_title: event?.title || 'Event',
+    payment_status: row.payment_status,
+    amount_paid_paise,
+    amount_due_paise: amountDuePaise(total_cost_paise, amount_paid_paise),
+  });
+}

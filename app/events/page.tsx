@@ -1,7 +1,84 @@
 'use client';
-import {useEffect,useState} from 'react';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import MemberGate from '@/components/member-gate';
 import PortalShell from '@/components/portal-shell';
-import {createClient} from '@/lib/supabase';
-type EventRow={id:string;title:string;summary:string;starts_at:string;venue:string|null;registration_url:string|null};
-export default function EventsPage(){const [events,setEvents]=useState<EventRow[]>([]);const [message,setMessage]=useState('Loading events…');useEffect(()=>{let active=true;(async()=>{try{const {data,error}=await createClient().from('alumni_events').select('id,title,summary,starts_at,venue,registration_url').eq('published',true).gte('starts_at',new Date().toISOString()).order('starts_at');if(!active)return;if(error)setMessage('Events are not connected yet. Apply the alumni portal migration to enable publishing.');else{setEvents((data||[]) as EventRow[]);setMessage(data?.length?'':'No upcoming events have been published yet.')}}catch{if(active)setMessage('Events are not configured yet.')}})();return()=>{active=false}},[]);return <PortalShell title="Make the next memory" eyebrow="REUNIONS · MEETUPS · SCHOOL EVENTS"><MemberGate>{message&&<p className="rounded-xl bg-white border border-outline-variant p-5 text-body-sm text-on-surface-variant">{message}</p>}<div className="grid gap-4 md:grid-cols-2">{events.map(e=><article key={e.id} className="rounded-2xl bg-white border border-outline-variant p-6"><div className="text-label-sm uppercase tracking-widest text-jubilee-gold-deep">{new Date(e.starts_at).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}</div><h2 className="text-headline-sm text-primary mt-3">{e.title}</h2><p className="text-body-sm text-on-surface-variant mt-2">{e.summary}</p>{e.venue&&<p className="text-label-sm text-on-surface-variant mt-3">Venue: {e.venue}</p>}{e.registration_url&&<a href={e.registration_url} className="inline-flex mt-5 rounded-lg bg-primary text-white px-4 py-2.5 text-label-sm">Register ↗</a>}</article>)}</div></MemberGate></PortalShell>}
+import { mealPriceSummary } from '@/lib/events/pricing';
+import type { EventCatalog } from '@/lib/events/types';
+
+export default function EventsPage() {
+  const [events, setEvents] = useState<EventCatalog[]>([]);
+  const [message, setMessage] = useState('Loading events…');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/events', { cache: 'no-store' });
+        const payload = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (!res.ok) {
+          setMessage(payload.error || 'Events are not connected yet.');
+          setEvents([]);
+          return;
+        }
+        const rows = payload as EventCatalog[];
+        setEvents(rows);
+        setMessage(rows.length ? '' : 'No upcoming events have been published yet.');
+      } catch {
+        if (active) setMessage('Events are not configured yet.');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <PortalShell title="Make the next memory" eyebrow="REUNIONS · MEETUPS · SCHOOL EVENTS">
+      <MemberGate>
+        {message && (
+          <p className="rounded-xl bg-secondary-container/30 border border-jubilee-gold-light p-5 text-body-sm text-on-secondary-fixed-variant mb-4">
+            {message}
+          </p>
+        )}
+        <div className="grid gap-4 md:grid-cols-2">
+          {events.map((e) => (
+            <article
+              key={e.id}
+              className="rounded-2xl bg-surface-paper border border-primary/10 p-6 shadow-sm hover:border-jubilee-gold-light transition-colors"
+            >
+              <div className="text-label-sm uppercase tracking-widest text-jubilee-gold-deep font-bold">
+                {new Date(e.starts_at).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </div>
+              <h2 className="text-headline-sm text-primary mt-3">{e.title}</h2>
+              <p className="text-body-sm text-navy-subtle mt-2">{e.summary}</p>
+              {e.venue && (
+                <p className="text-label-sm text-on-surface-variant mt-3">Venue: {e.venue}</p>
+              )}
+              <p className="text-label-sm text-navy-subtle mt-3">
+                {mealPriceSummary(e)} · 2-wheeler ₹
+                {(e.parking_2w_paise / 100).toFixed(0)} · 4-wheeler ₹
+                {(e.parking_4w_paise / 100).toFixed(0)}
+                {e.base_ticket_paise > 0
+                  ? ` · Base ₹${(e.base_ticket_paise / 100).toFixed(0)}`
+                  : ''}
+              </p>
+              <Link
+                href={`/registration?event=${e.id}`}
+                className="inline-flex mt-5 rounded-lg bg-secondary-container text-on-secondary-container hover:bg-secondary-fixed px-4 py-2.5 text-label-sm font-bold"
+              >
+                Register ↗
+              </Link>
+            </article>
+          ))}
+        </div>
+      </MemberGate>
+    </PortalShell>
+  );
+}

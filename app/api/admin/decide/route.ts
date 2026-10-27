@@ -1,19 +1,25 @@
 import { NextResponse } from 'next/server';
-import { getCurrentAccount } from '@/lib/auth/request';
+import { requireVerifiedAdmin } from '@/lib/auth/admin-guard';
 import { createAdminClient } from '@/lib/supabase-admin';
+
+const ALLOWED = new Set(['pending', 'verified', 'rejected', 'suspended']);
 
 export async function POST(request: Request) {
   try {
-    const me = await getCurrentAccount();
-    if (!me || me.role !== 'admin' || me.member_status !== 'verified') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const me = await requireVerifiedAdmin();
+    if (!me) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
     const id = String(body.id || '');
-    const status = body.status === 'verified' || body.status === 'rejected' ? body.status : null;
-    if (!id || !status) {
-      return NextResponse.json({ error: 'id and status are required' }, { status: 400 });
+    const status = String(body.status || '');
+    if (!id || !ALLOWED.has(status)) {
+      return NextResponse.json(
+        { error: 'id and a valid status (pending|verified|rejected|suspended) are required' },
+        { status: 400 }
+      );
+    }
+    if (id === me.id) {
+      return NextResponse.json({ error: 'You cannot change your own membership status' }, { status: 400 });
     }
 
     const admin = createAdminClient();

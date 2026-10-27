@@ -1,20 +1,42 @@
 // app/(auth)/signup/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRegistrationNext } from '@/lib/events/choose-event';
+import PasswordInput from '@/components/password-input';
+import { isPublicEmail } from '@/lib/email';
+import {
+    COUNTRY_CALLING_CODES,
+    phoneInputHint,
+    phoneValidationError,
+    toE164,
+} from '@/lib/phone';
 
 export default function SignupPage() {
+    return (
+        <Suspense fallback={null}>
+            <SignupForm />
+        </Suspense>
+    );
+}
+
+function SignupForm() {
     const [email, setEmail] = useState('');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [fullName, setFullName] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
+    const [passwordConfirm, setPasswordConfirm] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phoneIsd, setPhoneIsd] = useState('+91');
+    const [phoneNational, setPhoneNational] = useState('');
     const [agreeTerms, setAgreeTerms] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     async function handleSignup(e: React.FormEvent) {
         e.preventDefault();
@@ -22,8 +44,37 @@ export default function SignupPage() {
         setError('');
         setSuccess('');
 
+        if (!firstName.trim() || !lastName.trim()) {
+            setError('First name and last name are required');
+            setLoading(false);
+            return;
+        }
         if (!agreeTerms) {
             setError('Please agree to the terms and conditions');
+            setLoading(false);
+            return;
+        }
+        if (!isPublicEmail(email)) {
+            setError(
+                'Use a public email address (Gmail, Yahoo, Outlook, iCloud, Proton, Rediffmail, AOL, or Zoho)'
+            );
+            setLoading(false);
+            return;
+        }
+        const phoneErr = phoneValidationError(phoneIsd, phoneNational);
+        if (phoneErr || !toE164(phoneIsd, phoneNational)) {
+            setError(phoneErr || 'Enter a valid phone number with country code (ISD) and national number');
+            setLoading(false);
+            return;
+        }
+
+        if (password !== passwordConfirm) {
+            setError('Passwords do not match');
+            setLoading(false);
+            return;
+        }
+        if (password.length < 8) {
+            setError('Password must be at least 8 characters');
             setLoading(false);
             return;
         }
@@ -34,9 +85,13 @@ export default function SignupPage() {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
                     email,
+                    username: username.trim(),
                     password,
-                    fullName: fullName.trim(),
-                    phoneNumber: phoneNumber.trim(),
+                    passwordConfirm,
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                    phoneIsd: phoneIsd.trim(),
+                    phoneNational: phoneNational.trim(),
                 }),
             });
             const payload = await res.json().catch(() => ({}));
@@ -47,14 +102,25 @@ export default function SignupPage() {
             }
 
             setSuccess('Account created! Redirecting...');
-            setTimeout(() => {
-                router.push('/registration');
+            setTimeout(async () => {
+                const meRes = await fetch('/api/auth/me');
+                const me = meRes.ok ? await meRes.json() : null;
+                const next = safeRegistrationNext(searchParams.get('next'));
+                if (me?.role === 'admin') router.push('/admin');
+                else if (next) router.push(next);
+                else if (me?.jubilee_reg_status === 'paid') router.push('/member');
+                else router.push('/registration');
             }, 1500);
         } catch (err) {
             setError('An unexpected error occurred');
             setLoading(false);
         }
     }
+
+    const passwordMismatch = passwordConfirm.length > 0 && password !== passwordConfirm;
+    const usernamePreview = username.trim() || email.trim() || 'your email';
+    const fieldClass =
+        'px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant';
 
     return (
         <div className="min-h-screen bg-surface flex items-center justify-center px-6 pt-20">
@@ -77,72 +143,172 @@ export default function SignupPage() {
                 {/* Form Card */}
                 <div className="bg-surface-paper rounded-xl shadow-md p-8 border border-surface-container-low">
                     <form onSubmit={handleSignup} className="space-y-4">
-                        {/* Full Name */}
-                        <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Full Name
-                            </label>
-                            <input
-                                type="text"
-                                value={fullName}
-                                onChange={(e) => setFullName(e.target.value)}
-                                placeholder="John Doe"
-                                required
-                                disabled={loading}
-                                className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
-                            />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="flex flex-col">
+                                <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="first-name">
+                                    First Name *
+                                </label>
+                                <input
+                                    id="first-name"
+                                    type="text"
+                                    value={firstName}
+                                    onChange={(e) => setFirstName(e.target.value)}
+                                    placeholder="John"
+                                    required
+                                    autoComplete="given-name"
+                                    disabled={loading}
+                                    className={fieldClass}
+                                />
+                            </div>
+                            <div className="flex flex-col">
+                                <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="last-name">
+                                    Last Name *
+                                </label>
+                                <input
+                                    id="last-name"
+                                    type="text"
+                                    value={lastName}
+                                    onChange={(e) => setLastName(e.target.value)}
+                                    placeholder="Doe"
+                                    required
+                                    autoComplete="family-name"
+                                    disabled={loading}
+                                    className={fieldClass}
+                                />
+                            </div>
                         </div>
 
                         {/* Email Field */}
                         <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Email Address
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="email">
+                                Email Address *
                             </label>
                             <input
+                                id="email"
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                placeholder="your@email.com"
+                                placeholder="you@gmail.com"
                                 required
+                                autoComplete="email"
                                 disabled={loading}
-                                className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
-                            />
-                        </div>
-
-                        {/* Phone Number */}
-                        <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Phone Number
-                            </label>
-                            <input
-                                type="tel"
-                                value={phoneNumber}
-                                onChange={(e) => setPhoneNumber(e.target.value)}
-                                placeholder="+91 98765 43210"
-                                required
-                                disabled={loading}
-                                className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
+                                className={fieldClass}
                             />
                             <p className="text-label-sm text-on-surface-variant mt-1">
-                                We'll use this to prefill your registration details
+                                Public email only (Gmail, Yahoo, Outlook, iCloud, Proton, Rediffmail, AOL, Zoho)
                             </p>
                         </div>
 
-                        {/* Password Field */}
                         <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Password
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="username">
+                                Username
                             </label>
                             <input
-                                type="password"
+                                id="username"
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                placeholder="Optional"
+                                autoComplete="username"
+                                disabled={loading}
+                                className={fieldClass}
+                            />
+                            <p className="text-label-sm text-on-surface-variant mt-1">
+                                Leave blank to use your email. Your username will be {usernamePreview}.
+                            </p>
+                        </div>
+
+                        {/* Phone: ISD + national */}
+                        <div className="flex flex-col">
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                                Phone Number *
+                            </label>
+                            <div className="flex gap-2">
+                                <select
+                                    value={phoneIsd}
+                                    onChange={(e) => setPhoneIsd(e.target.value)}
+                                    required
+                                    disabled={loading}
+                                    aria-label="Country calling code"
+                                    className="w-[9.5rem] shrink-0 px-2 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
+                                >
+                                    {COUNTRY_CALLING_CODES.map((c) => (
+                                        <option key={c.code} value={c.code}>
+                                            {c.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="tel"
+                                    value={phoneNational}
+                                    onChange={(e) =>
+                                        setPhoneNational(e.target.value.replace(/\D/g, ''))
+                                    }
+                                    placeholder="9876543210"
+                                    required
+                                    disabled={loading}
+                                    inputMode="numeric"
+                                    autoComplete="tel-national"
+                                    maxLength={12}
+                                    aria-label="National phone number"
+                                    aria-invalid={Boolean(
+                                        phoneNational && phoneValidationError(phoneIsd, phoneNational)
+                                    )}
+                                    className="min-w-0 flex-1 px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
+                                />
+                            </div>
+                            <p
+                                className={`text-label-sm mt-1 ${
+                                    phoneNational && phoneValidationError(phoneIsd, phoneNational)
+                                        ? 'text-error'
+                                        : 'text-on-surface-variant'
+                                }`}
+                            >
+                                {phoneNational && phoneValidationError(phoneIsd, phoneNational)
+                                    ? phoneValidationError(phoneIsd, phoneNational)
+                                    : phoneInputHint(phoneIsd)}
+                            </p>
+                        </div>
+
+                        <div className="flex flex-col">
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="password">
+                                Password *
+                            </label>
+                            <PasswordInput
+                                id="password"
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                onChange={setPassword}
                                 placeholder="At least 8 characters"
                                 required
                                 minLength={8}
+                                autoComplete="new-password"
                                 disabled={loading}
-                                className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
+                                className={fieldClass}
                             />
+                        </div>
+
+                        <div className="flex flex-col">
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="password-confirm">
+                                Confirm Password *
+                            </label>
+                            <PasswordInput
+                                id="password-confirm"
+                                value={passwordConfirm}
+                                onChange={setPasswordConfirm}
+                                placeholder="Re-enter your password"
+                                required
+                                minLength={8}
+                                autoComplete="new-password"
+                                disabled={loading}
+                                ariaInvalid={passwordMismatch}
+                                ariaDescribedBy={passwordMismatch ? 'password-confirm-error' : undefined}
+                                className={fieldClass}
+                            />
+                            {passwordMismatch && (
+                                <p id="password-confirm-error" className="text-label-sm text-error mt-1">
+                                    Passwords do not match
+                                </p>
+                            )}
                         </div>
 
                         {/* Terms Checkbox */}
@@ -152,6 +318,7 @@ export default function SignupPage() {
                                 id="agree-terms"
                                 checked={agreeTerms}
                                 onChange={(e) => setAgreeTerms(e.target.checked)}
+                                required
                                 disabled={loading}
                                 className="mt-1 w-5 h-5 rounded border-outline-variant accent-primary cursor-pointer disabled:opacity-50"
                             />
@@ -184,7 +351,7 @@ export default function SignupPage() {
                         {/* Signup Button */}
                         <button
                             type="submit"
-                            disabled={loading || !agreeTerms}
+                            disabled={loading || !agreeTerms || passwordMismatch}
                             className="w-full py-3 rounded-lg bg-primary text-on-primary text-label-md uppercase tracking-wider font-bold hover:bg-navy-subtle disabled:bg-surface-container disabled:text-on-surface-variant transition-all mt-6"
                         >
                             {loading ? 'Creating Account...' : 'Create Account'}

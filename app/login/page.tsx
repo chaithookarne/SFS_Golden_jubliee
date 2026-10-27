@@ -1,16 +1,27 @@
 // app/(auth)/login/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRegistrationNext } from '@/lib/events/choose-event';
+import PasswordInput from '@/components/password-input';
 
 export default function LoginPage() {
-    const [email, setEmail] = useState('');
+    return (
+        <Suspense fallback={null}>
+            <LoginForm />
+        </Suspense>
+    );
+}
+
+function LoginForm() {
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     async function handleLogin(e: React.FormEvent) {
         e.preventDefault();
@@ -21,16 +32,27 @@ export default function LoginPage() {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ username, password }),
             });
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setError(payload.error || 'Invalid email or password');
+                setError(payload.error || 'Invalid username or password');
                 setLoading(false);
                 return;
             }
 
-            router.push('/registration');
+            const meRes = await fetch('/api/auth/me');
+            const me = meRes.ok ? await meRes.json() : null;
+            const next = safeRegistrationNext(searchParams.get('next'));
+            if (me?.role === 'admin') {
+                router.push('/admin');
+            } else if (next) {
+                router.push(next);
+            } else if (me?.jubilee_reg_status === 'paid') {
+                router.push('/member');
+            } else {
+                router.push('/registration');
+            }
         } catch (err) {
             setError('An unexpected error occurred');
             setLoading(false);
@@ -58,32 +80,36 @@ export default function LoginPage() {
                 {/* Form Card */}
                 <div className="bg-surface-paper rounded-xl shadow-md p-8 border border-surface-container-low">
                     <form onSubmit={handleLogin} className="space-y-4">
-                        {/* Email Field */}
                         <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
-                                Email Address
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="login-username">
+                                Username
                             </label>
                             <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="your@email.com"
+                                id="login-username"
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                placeholder="you@gmail.com"
                                 required
+                                autoComplete="username"
                                 disabled={loading}
                                 className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
                             />
+                            <p className="text-label-sm text-on-surface-variant mt-1">
+                                Your email is your username unless you chose a different one.
+                            </p>
                         </div>
 
                         {/* Password Field */}
                         <div className="flex flex-col">
-                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider">
+                            <label className="text-label-md text-primary mb-2 uppercase tracking-wider" htmlFor="login-password">
                                 Password
                             </label>
-                            <input
-                                type="password"
+                            <PasswordInput
+                                id="login-password"
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
+                                onChange={setPassword}
+                                autoComplete="current-password"
                                 required
                                 disabled={loading}
                                 className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:bg-surface-container disabled:text-on-surface-variant"
