@@ -18,10 +18,18 @@ set guests = jsonb_build_array(
 where guests = '[]'::jsonb;
 
 -- Expand to number_of_guests identical clones (prior whole-party same choice).
-update public.event_registrations r
-set guests = (
-  select coalesce(jsonb_agg(r.guests->0), '[]'::jsonb)
-  from generate_series(1, greatest(coalesce(r.number_of_guests, 1), 1))
-)
-where jsonb_array_length(r.guests) = 1
-  and greatest(coalesce(r.number_of_guests, 1), 1) > 1;
+-- Aggregate lives in a FROM subquery — not allowed directly in UPDATE SET.
+update public.event_registrations as r
+set guests = expanded.guests
+from (
+  select
+    e.id,
+    (
+      select coalesce(jsonb_agg(e.guests -> 0), '[]'::jsonb)
+      from generate_series(1, greatest(coalesce(e.number_of_guests, 1), 1)) as _
+    ) as guests
+  from public.event_registrations as e
+  where jsonb_array_length(e.guests) = 1
+    and greatest(coalesce(e.number_of_guests, 1), 1) > 1
+) as expanded
+where r.id = expanded.id;
