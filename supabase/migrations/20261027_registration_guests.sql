@@ -1,4 +1,6 @@
 -- Per-person meal/diet choices for event registrations.
+-- Safe to re-run: ADD COLUMN IF NOT EXISTS; empty-only backfill; expand only length-1 rows.
+
 alter table public.event_registrations
   add column if not exists guests jsonb not null default '[]'::jsonb;
 
@@ -17,19 +19,21 @@ set guests = jsonb_build_array(
 )
 where guests = '[]'::jsonb;
 
--- Expand to number_of_guests identical clones (prior whole-party same choice).
--- Aggregate lives in a FROM subquery — not allowed directly in UPDATE SET.
-update public.event_registrations as r
-set guests = expanded.guests
-from (
+-- Expand to number_of_guests identical clones (aggregate only inside the CTE).
+with built as (
   select
     e.id,
-    (
-      select coalesce(jsonb_agg(e.guests -> 0), '[]'::jsonb)
-      from generate_series(1, greatest(coalesce(e.number_of_guests, 1), 1)) as _
-    ) as guests
-  from public.event_registrations as e
+    jsonb_agg(e.guests -> 0) as guests
+  from public.event_registrations e
+  cross join lateral generate_series(
+    1,
+    greatest(coalesce(e.number_of_guests, 1), 1)
+  ) as g
   where jsonb_array_length(e.guests) = 1
     and greatest(coalesce(e.number_of_guests, 1), 1) > 1
-) as expanded
-where r.id = expanded.id;
+  group by e.id
+)
+update public.event_registrations as r
+set guests = built.guests
+from built
+where r.id = built.id;
