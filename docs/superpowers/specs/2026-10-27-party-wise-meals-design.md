@@ -1,6 +1,7 @@
 # Spec: Party-wise veg / non-veg / meals
 
-**Status:** draft — awaiting review  
+**Status:** approved  
+
 
 **Date:** 2026-10-27  
 **Project:** SFS Alumni Golden Jubilee portal  
