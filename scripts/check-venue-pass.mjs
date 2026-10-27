@@ -37,4 +37,17 @@ assert(owed.meals === 'No meals', 'missing meals are explicit');
 assert(owed.parking === 'No vehicle', 'no parking is explicit');
 assert(owed.food === 'Non-veg', 'non-veg preference is shown');
 
+const noFood = venuePassSummary({
+  number_of_guests: 1,
+  lunch: false,
+  dinner: false,
+  parking_needed: '2-wheeler',
+  food_preference: 'none',
+  payment_status: 'paid',
+  amount_due_paise: 0,
+  registration_code: 'SFS-NOFD1',
+});
+assert(noFood.food === 'No food', 'none preference shows as No food');
+assert(noFood.meals === 'No meals', 'no-food pass has no meals');
+
 console.log('check-venue-pass: PASS');

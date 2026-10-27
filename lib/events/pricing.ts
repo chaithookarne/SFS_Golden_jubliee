@@ -39,7 +39,7 @@ export function mealChoiceLabel(
   name: string,
   vegPaise: number,
   nonvegPaise: number | null | undefined,
-  preference: 'veg' | 'non-veg'
+  preference: 'veg' | 'non-veg' | 'none'
 ): string {
   const rate = preference === 'non-veg' && nonvegPaise != null ? nonvegPaise : vegPaise;
   return `${name} · ₹${rupees(rate)} / person`;

@@ -30,7 +30,12 @@ export function venuePassSummary(reg: VenuePassInput): VenuePassSummary {
     people: Math.max(1, Math.floor(Number(reg.number_of_guests) || 1)),
     meals: meals || 'No meals',
     parking,
-    food: reg.food_preference === 'non-veg' ? 'Non-veg' : 'Veg',
+    food:
+      reg.food_preference === 'non-veg'
+        ? 'Non-veg'
+        : reg.food_preference === 'none'
+          ? 'No food'
+          : 'Veg',
     paid: reg.payment_status === 'paid' && Math.max(0, Number(reg.amount_due_paise) || 0) === 0,
     code: reg.registration_code || null,
   };

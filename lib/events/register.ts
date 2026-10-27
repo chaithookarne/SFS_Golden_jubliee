@@ -11,6 +11,7 @@ import { eventToPricing } from '@/lib/events/pricing';
 import type { ExistingRegistrationRow } from '@/lib/events/existing-registration';
 import {
   calculateEventRegistrationCost,
+  normalizeFoodPreference,
   partySize,
   validateRegistrationCost,
   type CostCalculationInput,
@@ -187,12 +188,14 @@ export async function registerAccountForEvent(
   const parkingNeeded = (['none', '2-wheeler', '4-wheeler'].includes(String(body.parking_needed))
     ? String(body.parking_needed)
     : 'none') as ParkingNeeded;
+  const foodPreference = normalizeFoodPreference(body.food_preference);
+  const wantsMeals = foodPreference !== 'none';
   const input = {
     numberOfGuests: partySize(Number(body.number_of_guests)),
-    lunch: Boolean(body.lunch),
-    dinner: Boolean(body.dinner),
+    lunch: wantsMeals && Boolean(body.lunch),
+    dinner: wantsMeals && Boolean(body.dinner),
     parkingNeeded,
-    foodPreference: body.food_preference === 'non-veg' ? 'non-veg' : 'veg',
+    foodPreference,
   } satisfies CostCalculationInput;
   const pricing = eventToPricing(catalog);
   if (!validateRegistrationCost(pricing, input)) {
@@ -239,7 +242,7 @@ export async function registerAccountForEvent(
     account_id: me.id,
     phone_number: phone,
     number_of_guests: input.numberOfGuests,
-    food_preference: body.food_preference ? String(body.food_preference) : null,
+    food_preference: foodPreference,
     parking_needed: input.parkingNeeded,
     lunch: input.lunch,
     dinner: input.dinner,

@@ -78,4 +78,18 @@ assert(
   'breakdown names the non-veg rate'
 );
 
+const parkingOnly = {
+  numberOfGuests: 2,
+  lunch: false,
+  dinner: false,
+  parkingNeeded: '4-wheeler',
+  foodPreference: 'none',
+};
+assert(validateRegistrationCost(jubilee, parkingOnly) === true, 'parking alone is valid with no food');
+assert(calculateEventRegistrationCost(jubilee, parkingOnly) === 20000, 'no-food parking-only is parking only');
+assert(
+  getEventCostBreakdown(jubilee, parkingOnly).details.includes('No meals'),
+  'no-food breakdown says No meals'
+);
+
 console.log('PASS event registration cost');

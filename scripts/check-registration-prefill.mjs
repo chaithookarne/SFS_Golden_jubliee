@@ -1,51 +1,27 @@
+import { registerHooks } from 'node:module';
+import { existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import assert from 'node:assert/strict';
-import { parseLocation } from '../lib/registration-fields.ts';
 
-function partySize(n) {
-  const x = Math.floor(Number(n));
-  if (!Number.isFinite(x) || x < 1) return 1;
-  return x;
-}
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    let spec = specifier;
+    if (spec.startsWith('@/')) spec = pathToFileURL(path.join(root, spec.slice(2))).href;
+    if (spec.startsWith('.')) {
+      const parent = context.parentURL ? fileURLToPath(context.parentURL) : root;
+      const abs = path.resolve(path.dirname(parent), spec);
+      if (!path.extname(abs) && existsSync(`${abs}.ts`)) spec = pathToFileURL(`${abs}.ts`).href;
+    } else if (spec.startsWith('file:')) {
+      const abs = fileURLToPath(spec);
+      if (!path.extname(abs) && existsSync(`${abs}.ts`)) spec = pathToFileURL(`${abs}.ts`).href;
+    }
+    return nextResolve(spec, context);
+  },
+});
 
-function registrationChoicesFromRow(row) {
-  if (!row) return null;
-  const parking = ['none', '2-wheeler', '4-wheeler'].includes(row.parking_needed)
-    ? row.parking_needed
-    : 'none';
-  return {
-    number_of_guests: partySize(Number(row.number_of_guests)),
-    food_preference: row.food_preference === 'non-veg' ? 'non-veg' : 'veg',
-    parking_needed: parking,
-    lunch: Boolean(row.lunch),
-    dinner: Boolean(row.dinner),
-    attending: row.attending !== false,
-    phone_number: row.phone_number || undefined,
-    payment_status: row.payment_status,
-  };
-}
-
-function mergeRegistrationPrefill(profile, row) {
-  const choices = registrationChoicesFromRow(row);
-  const loc = parseLocation(profile?.current_location || '');
-  const phone = choices?.phone_number || profile?.phone_number || '';
-  return {
-    full_name: String(profile?.full_name || '').trim(),
-    last_name: String(profile?.last_name || '').trim(),
-    email: String(profile?.email || '').trim(),
-    phone_number: phone,
-    batch: typeof profile?.batch === 'number' ? profile.batch : undefined,
-    section: String(profile?.section || '').trim(),
-    city: loc.city,
-    country: loc.country,
-    number_of_guests: partySize(choices?.number_of_guests ?? 1),
-    food_preference: choices?.food_preference ?? 'veg',
-    parking_needed: choices?.parking_needed ?? 'none',
-    lunch: choices?.lunch ?? false,
-    dinner: choices?.dinner ?? false,
-    attending: choices?.attending ?? true,
-    payment_status: choices?.payment_status,
-  };
-}
+const { mergeRegistrationPrefill } = await import('../lib/events/existing-registration.ts');
 
 const merged = mergeRegistrationPrefill(
   {
@@ -98,5 +74,21 @@ assert.equal(alone.number_of_guests, 1, '0 people in DB still defaults to 1');
 
 const empty = mergeRegistrationPrefill({ full_name: 'New', email: 'n@gmail.com' }, null);
 assert.equal(empty.number_of_guests, 1, 'no registration defaults to 1');
+
+const noFood = mergeRegistrationPrefill(
+  { full_name: 'Skip', email: 'skip@gmail.com' },
+  {
+    number_of_guests: 1,
+    food_preference: 'none',
+    parking_needed: '4-wheeler',
+    lunch: false,
+    dinner: false,
+    attending: true,
+    payment_status: 'pending',
+  }
+);
+assert.equal(noFood.food_preference, 'none');
+assert.equal(noFood.lunch, false);
+assert.equal(noFood.dinner, false);
 
 console.log('PASS registration prefill merge');

@@ -21,8 +21,11 @@ import {
     DEFAULT_JUBILEE_PRICING,
     formatCostForDisplay,
     getEventCostBreakdown,
+    normalizeFoodPreference,
     partySize,
+    validateRegistrationCost,
     type EventPricing,
+    type FoodPreference,
 } from '@/lib/registration';
 import { amountDuePaise } from '@/lib/events/balance';
 import { chooseRegistrationEvent, registrationPath } from '@/lib/events/choose-event';
@@ -61,7 +64,7 @@ interface PreRegistrationData {
     batch?: number;
     section?: string;
     current_location?: string;
-    food_preference?: 'veg' | 'non-veg';
+    food_preference?: FoodPreference;
     match_type: 'exact' | 'phone_only';
 }
 
@@ -75,7 +78,7 @@ interface FormData {
     country: string;
     email: string;
     number_of_guests: number;
-    food_preference: 'veg' | 'non-veg';
+    food_preference: FoodPreference;
     parking_needed: '2-wheeler' | '4-wheeler' | 'none';
     lunch: boolean;
     dinner: boolean;
@@ -367,8 +370,9 @@ function RegistrationPageInner() {
                         section: match.section || prev.section,
                         city: loc.city || prev.city,
                         country: loc.country || prev.country,
-                        food_preference: (match.food_preference as 'veg' | 'non-veg') ||
-                            prev.food_preference,
+                        food_preference: match.food_preference
+                            ? normalizeFoodPreference(match.food_preference)
+                            : prev.food_preference,
                     }));
                     setPreRegData(match);
                     setCurrentStep('details');
@@ -422,10 +426,11 @@ function RegistrationPageInner() {
         }
     }
 
+    const wantsMeals = formData.food_preference !== 'none';
     const costBreakdown = getEventCostBreakdown(eventPricing, {
         numberOfGuests: formData.number_of_guests,
-        lunch: formData.lunch,
-        dinner: formData.dinner,
+        lunch: wantsMeals && formData.lunch,
+        dinner: wantsMeals && formData.dinner,
         parkingNeeded: formData.parking_needed,
         foodPreference: formData.food_preference,
     });
@@ -477,8 +482,16 @@ function RegistrationPageInner() {
             setError('Country is required');
             return { ok: false };
         }
-        if (!formData.lunch && !formData.dinner) {
-            setError('Select at least one meal (Lunch or Dinner)');
+        if (
+            !validateRegistrationCost(eventPricing, {
+                numberOfGuests: formData.number_of_guests,
+                lunch: formData.food_preference !== 'none' && formData.lunch,
+                dinner: formData.food_preference !== 'none' && formData.dinner,
+                parkingNeeded: formData.parking_needed,
+                foodPreference: formData.food_preference,
+            })
+        ) {
+            setError('Select at least one meal or parking (or the event needs a base ticket)');
             return { ok: false };
         }
         if (!formatLocation(formData.city, formData.country)) {
@@ -523,8 +536,8 @@ function RegistrationPageInner() {
                     number_of_guests: formData.number_of_guests,
                     food_preference: formData.food_preference,
                     parking_needed: formData.parking_needed,
-                    lunch: formData.lunch,
-                    dinner: formData.dinner,
+                    lunch: formData.food_preference !== 'none' && formData.lunch,
+                    dinner: formData.food_preference !== 'none' && formData.dinner,
                     attending: formData.attending,
                 }),
             });
@@ -892,7 +905,9 @@ function RegistrationPageInner() {
                                         section: preRegData.section || '',
                                         city: loc.city,
                                         country: loc.country,
-                                        food_preference: (preRegData.food_preference as 'veg' | 'non-veg') || 'veg',
+                                        food_preference: preRegData.food_preference
+                                            ? normalizeFoodPreference(preRegData.food_preference)
+                                            : 'veg',
                                     }));
                                     setCurrentStep('details');
                                 }}
@@ -1163,7 +1178,7 @@ function RegistrationPageInner() {
                                             className="px-4 py-3 rounded-lg border border-outline-variant text-body-sm bg-surface focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all disabled:opacity-50"
                                         />
                                         <p className="text-label-sm text-on-surface-variant mt-1">
-                                            Include yourself. Lunch and dinner are charged for each person.
+                                            Include yourself. Selected meals are charged for each person.
                                         </p>
                                     </div>
 
@@ -1171,66 +1186,89 @@ function RegistrationPageInner() {
                                         <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
                                             Food Preference *
                                         </label>
-                                        <div className="flex gap-4">
-                                            {(['veg', 'non-veg'] as const).map((pref) => (
-                                                <label key={pref} className="flex items-center gap-2">
+                                        <div className="flex flex-wrap gap-4">
+                                            {(
+                                                [
+                                                    { value: 'veg', label: 'Veg' },
+                                                    { value: 'non-veg', label: 'Non-veg' },
+                                                    { value: 'none', label: 'No food' },
+                                                ] as const
+                                            ).map((pref) => (
+                                                <label key={pref.value} className="flex items-center gap-2">
                                                     <input
                                                         type="radio"
                                                         name="food_preference"
-                                                        value={pref}
-                                                        checked={formData.food_preference === pref}
-                                                        onChange={(e) =>
+                                                        value={pref.value}
+                                                        checked={formData.food_preference === pref.value}
+                                                        onChange={() =>
                                                             setFormData({
                                                                 ...formData,
-                                                                food_preference: e.target.value as 'veg' | 'non-veg',
+                                                                food_preference: pref.value,
+                                                                lunch: pref.value === 'none' ? false : formData.lunch,
+                                                                dinner: pref.value === 'none' ? false : formData.dinner,
                                                             })
                                                         }
                                                         disabled={busy}
                                                         className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
                                                     />
-                                                    <span className="text-body-sm text-on-surface capitalize">
-                                                        {pref.replace('-', ' ')}
+                                                    <span className="text-body-sm text-on-surface">
+                                                        {pref.label}
                                                     </span>
                                                 </label>
                                             ))}
                                         </div>
                                     </div>
 
-                                    <div className="flex flex-col">
-                                        <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
-                                            Meals *
-                                        </label>
-                                        <div className="space-y-2">
-                                            <label className="flex items-center gap-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.lunch}
-                                                    onChange={(e) =>
-                                                        setFormData({ ...formData, lunch: e.target.checked })
-                                                    }
-                                                    disabled={busy}
-                                                    className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
-                                                />
-                                                <span className="text-body-sm text-on-surface">
-                                                    {mealChoiceLabel('Lunch', eventPricing.lunch_paise, eventPricing.lunch_nonveg_paise, formData.food_preference)}
-                                                </span>
+                                    {formData.food_preference !== 'none' ? (
+                                        <div className="flex flex-col">
+                                            <label className="text-label-md text-primary mb-3 uppercase tracking-wider">
+                                                Meals
                                             </label>
-                                            <label className="flex items-center gap-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.dinner}
-                                                    onChange={(e) =>
-                                                        setFormData({ ...formData, dinner: e.target.checked })
-                                                    }
-                                                    disabled={busy}
-                                                    className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
-                                                />
-                                                <span className="text-body-sm text-on-surface">
-                                                    {mealChoiceLabel('Dinner', eventPricing.dinner_paise, eventPricing.dinner_nonveg_paise, formData.food_preference)}
-                                                </span>
-                                            </label>
+                                            <div className="space-y-2">
+                                                <label className="flex items-center gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.lunch}
+                                                        onChange={(e) =>
+                                                            setFormData({ ...formData, lunch: e.target.checked })
+                                                        }
+                                                        disabled={busy}
+                                                        className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
+                                                    />
+                                                    <span className="text-body-sm text-on-surface">
+                                                        {mealChoiceLabel(
+                                                            'Lunch',
+                                                            eventPricing.lunch_paise,
+                                                            eventPricing.lunch_nonveg_paise,
+                                                            formData.food_preference
+                                                        )}
+                                                    </span>
+                                                </label>
+                                                <label className="flex items-center gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.dinner}
+                                                        onChange={(e) =>
+                                                            setFormData({ ...formData, dinner: e.target.checked })
+                                                        }
+                                                        disabled={busy}
+                                                        className="w-4 h-4 accent-primary cursor-pointer disabled:opacity-50"
+                                                    />
+                                                    <span className="text-body-sm text-on-surface">
+                                                        {mealChoiceLabel(
+                                                            'Dinner',
+                                                            eventPricing.dinner_paise,
+                                                            eventPricing.dinner_nonveg_paise,
+                                                            formData.food_preference
+                                                        )}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <p className="text-label-sm text-on-surface-variant mt-1">
+                                                Optional — leave both unchecked if you only need parking.
+                                            </p>
                                         </div>
-                                    </div>
+                                    ) : null}
 
                                     <div className="flex flex-col">
                                         <label className="text-label-md text-primary mb-3 uppercase tracking-wider">

@@ -1,13 +1,20 @@
 // lib/registration.ts
 
 export type ParkingNeeded = '2-wheeler' | '4-wheeler' | 'none';
+export type FoodPreference = 'veg' | 'non-veg' | 'none';
+
+export function normalizeFoodPreference(value: unknown): FoodPreference {
+  if (value === 'non-veg') return 'non-veg';
+  if (value === 'none') return 'none';
+  return 'veg';
+}
 
 export type CostCalculationInput = {
   numberOfGuests: number;
   lunch: boolean;
   dinner: boolean;
   parkingNeeded: ParkingNeeded;
-  foodPreference?: 'veg' | 'non-veg';
+  foodPreference?: FoodPreference;
 };
 
 export type EventPricing = {

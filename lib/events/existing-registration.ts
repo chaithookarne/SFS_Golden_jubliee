@@ -1,4 +1,9 @@
-import { partySize, type ParkingNeeded } from '../registration';
+import {
+  normalizeFoodPreference,
+  partySize,
+  type FoodPreference,
+  type ParkingNeeded,
+} from '../registration';
 import { parseLocation } from '../registration-fields';
 
 export type ExistingRegistrationRow = {
@@ -27,7 +32,7 @@ export type RegistrationProfileSnapshot = {
 
 export type RegistrationFormChoices = {
   number_of_guests: number;
-  food_preference: 'veg' | 'non-veg';
+  food_preference: FoodPreference;
   parking_needed: ParkingNeeded;
   lunch: boolean;
   dinner: boolean;
@@ -46,7 +51,7 @@ export type RegistrationPrefill = {
   city: string;
   country: string;
   number_of_guests: number;
-  food_preference: 'veg' | 'non-veg';
+  food_preference: FoodPreference;
   parking_needed: ParkingNeeded;
   lunch: boolean;
   dinner: boolean;
@@ -68,7 +73,7 @@ export function registrationChoicesFromRow(
     : 'none';
   return {
     number_of_guests: partySize(Number(row.number_of_guests)),
-    food_preference: row.food_preference === 'non-veg' ? 'non-veg' : 'veg',
+    food_preference: normalizeFoodPreference(row.food_preference),
     parking_needed: parking,
     lunch: Boolean(row.lunch),
     dinner: Boolean(row.dinner),
