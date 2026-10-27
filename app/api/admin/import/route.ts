@@ -31,20 +31,26 @@ async function loadAccounts(): Promise<{ email: string; username: string | null;
   const rows: { email: string; username: string | null; full_name: string | null; phone_number: string | null }[] = [];
   const page = 1000;
   for (let from = 0; ; from += page) {
-    let result = await admin
+    const full = await admin
       .from('alumni_accounts')
       .select('email,username,full_name,phone_number')
       .range(from, from + page - 1);
-    if (missingColumn(result.error)) {
-      result = await admin.from('alumni_accounts').select('email,full_name,phone_number').range(from, from + page - 1);
-    }
+    const result = missingColumn(full.error)
+      ? await admin.from('alumni_accounts').select('email,full_name,phone_number').range(from, from + page - 1)
+      : full;
     if (result.error) throw new Error(result.error.message || 'Could not read accounts');
     for (const row of result.data || []) {
+      const record = row as {
+        email: string;
+        username?: string | null;
+        full_name: string | null;
+        phone_number: string | null;
+      };
       rows.push({
-        email: String(row.email),
-        username: row.username ? String(row.username) : null,
-        full_name: row.full_name ? String(row.full_name) : null,
-        phone_number: row.phone_number ? String(row.phone_number) : null,
+        email: String(record.email),
+        username: record.username ? String(record.username) : null,
+        full_name: record.full_name ? String(record.full_name) : null,
+        phone_number: record.phone_number ? String(record.phone_number) : null,
       });
     }
     if (!result.data || result.data.length < page) break;
