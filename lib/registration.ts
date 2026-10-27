@@ -93,7 +93,8 @@ export function getEventCostBreakdown(
         ? pricing.parking_4w_paise || 0
         : 0;
 
-  const baseCost = pricing.base_ticket_paise || 0;
+  const baseRate = pricing.base_ticket_paise || 0;
+  const baseCost = totalPeople * baseRate;
 
   let details =
     mealBits.length > 0
@@ -102,8 +103,8 @@ export function getEventCostBreakdown(
   if (parkingCost > 0) {
     details += ` + parking ₹${(parkingCost / 100).toFixed(0)}`;
   }
-  if (baseCost > 0) {
-    details += ` + registration fee ₹${(baseCost / 100).toFixed(0)}`;
+  if (baseRate > 0) {
+    details += ` + registration fee ₹${(baseRate / 100).toFixed(0)} / person`;
   }
 
   return {

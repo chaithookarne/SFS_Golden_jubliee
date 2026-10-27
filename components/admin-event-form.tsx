@@ -230,7 +230,7 @@ export default function AdminEventForm({ event }: { event?: EventCatalog | null 
                 ['dinner_nonveg_rupees', 'Dinner · non-veg / person'],
                 ['parking_2w_rupees', '2-wheeler parking'],
                 ['parking_4w_rupees', '4-wheeler parking'],
-                ['base_ticket_rupees', 'Registration fee'],
+                ['base_ticket_rupees', 'Registration fee / person'],
               ] as const
             ).map(([key, lab]) => (
               <div key={key}>

@@ -72,7 +72,9 @@ export default function AdminEventsPage() {
                 {mealPriceSummary(e)} ·
                 2-wheeler ₹{(e.parking_2w_paise / 100).toFixed(0)} · 4-wheeler ₹
                 {(e.parking_4w_paise / 100).toFixed(0)}
-                {e.base_ticket_paise > 0 ? ` · Registration fee ₹${(e.base_ticket_paise / 100).toFixed(0)}` : ''}
+                {e.base_ticket_paise > 0
+                  ? ` · Registration fee ₹${(e.base_ticket_paise / 100).toFixed(0)} / person`
+                  : ''}
               </p>
             </div>
             <div className="flex gap-2">

@@ -29,14 +29,25 @@ assert(
   'one person is 100000, not an extra default person'
 );
 assert(
-  calculateEventRegistrationCost({ ...jubilee, base_ticket_paise: 10000 }, input) === 190000,
-  'with base 190000'
+  calculateEventRegistrationCost({ ...jubilee, base_ticket_paise: 10000 }, input) === 200000,
+  'registration fee is per person (2 × ₹100 + meals/parking = 200000)'
+);
+assert(
+  calculateEventRegistrationCost(
+    { ...jubilee, base_ticket_paise: 10000 },
+    { ...input, numberOfGuests: 1 }
+  ) === 110000,
+  'one person registration fee is once'
 );
 assert(
   getEventCostBreakdown({ ...jubilee, base_ticket_paise: 10000 }, input).details.includes(
-    'registration fee ₹100'
+    'registration fee ₹100 / person'
   ),
-  'breakdown names the registration fee'
+  'breakdown names the per-person registration fee'
+);
+assert(
+  getEventCostBreakdown({ ...jubilee, base_ticket_paise: 10000 }, input).baseCost === 20000,
+  'baseCost is rate × people'
 );
 const bd = getEventCostBreakdown(jubilee, input);
 assert(bd.totalCost === 180000, 'breakdown total');
