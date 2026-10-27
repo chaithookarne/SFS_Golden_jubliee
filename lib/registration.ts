@@ -103,7 +103,7 @@ export function getEventCostBreakdown(
     details += ` + parking ₹${(parkingCost / 100).toFixed(0)}`;
   }
   if (baseCost > 0) {
-    details += ` + base ₹${(baseCost / 100).toFixed(0)}`;
+    details += ` + registration fee ₹${(baseCost / 100).toFixed(0)}`;
   }
 
   return {

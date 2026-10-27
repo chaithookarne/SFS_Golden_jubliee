@@ -491,7 +491,7 @@ function RegistrationPageInner() {
                 foodPreference: formData.food_preference,
             })
         ) {
-            setError('Select at least one meal or parking (or the event needs a base ticket)');
+            setError('Select at least one meal or parking (or the event needs a registration fee)');
             return { ok: false };
         }
         if (!formatLocation(formData.city, formData.country)) {

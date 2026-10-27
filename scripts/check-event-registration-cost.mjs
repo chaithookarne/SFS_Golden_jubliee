@@ -32,6 +32,12 @@ assert(
   calculateEventRegistrationCost({ ...jubilee, base_ticket_paise: 10000 }, input) === 190000,
   'with base 190000'
 );
+assert(
+  getEventCostBreakdown({ ...jubilee, base_ticket_paise: 10000 }, input).details.includes(
+    'registration fee ₹100'
+  ),
+  'breakdown names the registration fee'
+);
 const bd = getEventCostBreakdown(jubilee, input);
 assert(bd.totalCost === 180000, 'breakdown total');
 assert(bd.baseCost === 0, 'base 0');
