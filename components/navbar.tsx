@@ -11,6 +11,15 @@ export default function NavBar() {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const router = useRouter();
     const pathname = usePathname();
+    const onPortal =
+        pathname === '/member' ||
+        pathname === '/directory' ||
+        pathname === '/events' ||
+        pathname === '/stories' ||
+        pathname === '/memories' ||
+        pathname === '/submissions' ||
+        pathname === '/admin' ||
+        pathname.startsWith('/admin/');
 
     useEffect(() => {
         let active = true;
@@ -48,7 +57,7 @@ export default function NavBar() {
     }
 
     return (
-        <header className="fixed top-0 left-0 w-full z-50 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
+        <header className="fixed top-0 left-0 w-full z-50 bg-surface-paper/95 backdrop-blur-sm border-b border-outline-variant">
             <div className="h-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-12 flex items-center justify-between gap-4">
                 <Link
                     className="flex items-center gap-2.5 sm:gap-3.5 group text-left min-w-0"
@@ -77,7 +86,9 @@ export default function NavBar() {
                     </div>
                 </Link>
 
-                <div className="hidden md:flex items-center gap-2 lg:gap-3 shrink-0">
+                <div
+                    className={`${onPortal ? 'flex' : 'hidden md:flex'} items-center gap-2 lg:gap-3 shrink-0`}
+                >
                     {!loading && !user && (
                         <>
                             <Link
@@ -97,8 +108,8 @@ export default function NavBar() {
 
                     {!loading && user && (
                         <>
-                            <div className="h-5 w-px bg-outline-variant" />
-                            {!user.isAdmin && (
+                            {!onPortal && <div className="h-5 w-px bg-outline-variant" />}
+                            {!onPortal && !user.isAdmin && (
                                 <Link
                                     href="/member"
                                     className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider text-primary hover:bg-surface-container transition-colors"
@@ -106,7 +117,7 @@ export default function NavBar() {
                                     Alumni Portal
                                 </Link>
                             )}
-                            {user.isAdmin && (
+                            {!onPortal && user.isAdmin && (
                                 <Link
                                     href="/admin"
                                     className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-label-md uppercase tracking-wider bg-primary text-on-primary hover:bg-navy-subtle shadow-sm transition-all"
@@ -133,6 +144,7 @@ export default function NavBar() {
                     )}
                 </div>
 
+                {!onPortal && (
                 <div className="flex md:hidden items-center">
                     <button
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -144,9 +156,10 @@ export default function NavBar() {
                         </span>
                     </button>
                 </div>
+                )}
             </div>
 
-            {mobileMenuOpen && (
+            {!onPortal && mobileMenuOpen && (
                 <div className="md:hidden absolute top-20 left-0 w-full bg-white border-b border-outline-variant shadow-lg py-4 px-6 flex flex-col gap-3 transition-all">
                     {!loading && !user && (
                         <div className="flex flex-col gap-2">

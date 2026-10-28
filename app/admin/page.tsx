@@ -8,6 +8,7 @@ type Overview = {
   pendingMembers: number;
   publishedEvents: number;
   unpaidRegistrations: number;
+  pendingMemories?: number;
   catalogReady?: boolean;
 };
 
@@ -55,6 +56,14 @@ export default function AdminOverviewPage() {
       hint: 'Review and mark paid',
       icon: 'confirmation_number',
       tone: 'amber' as const,
+    },
+    {
+      href: '/admin/memories',
+      label: 'Pending memories',
+      value: data?.pendingMemories ?? '—',
+      hint: 'Approve or reject photo submissions',
+      icon: 'photo_library',
+      tone: 'gold' as const,
     },
   ];
 

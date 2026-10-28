@@ -1,46 +1,119 @@
+'use client';
+
 import Link from 'next/link';
-import PortalShell from '@/components/portal-shell';
+import { useEffect, useState } from 'react';
+import HomeDestinationLanes from '@/components/home-destination-lanes';
 import MemberGate from '@/components/member-gate';
 import MemberVenuePass from '@/components/member-venue-pass';
-
-const cards: [string, string, string, string][] = [
-  ['groups', 'Find classmates', 'Reconnect by graduating batch, city and profession.', '/directory'],
-  ['event', 'Meet again', 'Discover reunions, community meetups and school celebrations.', '/events'],
-  ['photo_library', 'Keep the memories', 'Explore the shared SFS archive and alumni stories.', '/memories'],
-];
+import PortalShell from '@/components/portal-shell';
+import { registrationPath } from '@/lib/events/choose-event';
+import type { EventCatalog } from '@/lib/events/types';
+import { primaryNextAction, type PrimaryNextAction } from '@/lib/portal/next-action';
+import { firstNameFromFullName } from '@/lib/portal/welcome';
 
 export default function MemberPage() {
+  const [firstName, setFirstName] = useState('friend');
+  const [batch, setBatch] = useState<number | null>(null);
+  const [welcomeReady, setWelcomeReady] = useState(false);
+  const [next, setNext] = useState<PrimaryNextAction | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const meRes = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (!active || !meRes.ok) return;
+        const me = await meRes.json();
+        if (!active) return;
+        setFirstName(firstNameFromFullName(String(me.full_name || '')));
+        setBatch(typeof me.batch === 'number' ? me.batch : me.batch != null ? Number(me.batch) || null : null);
+        if (me.member_status === 'verified') setWelcomeReady(true);
+
+        if (me.role === 'admin') {
+          setNext(primaryNextAction({ hasRegistration: false, anyUnpaid: false }));
+          return;
+        }
+
+        const listRes = await fetch('/api/events', { cache: 'no-store' });
+        if (!listRes.ok || !active) {
+          setNext(primaryNextAction({ hasRegistration: false, anyUnpaid: false }));
+          return;
+        }
+        const list = (await listRes.json()) as EventCatalog[];
+        let hasRegistration = false;
+        let anyUnpaid = false;
+        let continueHref: string | undefined;
+
+        for (const event of Array.isArray(list) ? list : []) {
+          const regRes = await fetch(`/api/registration/event?eventId=${encodeURIComponent(event.id)}`, {
+            cache: 'no-store',
+          });
+          if (!regRes.ok || !active) continue;
+          const payload = await regRes.json();
+          if (!payload.registration) continue;
+          hasRegistration = true;
+          const status = String(payload.registration.payment_status || '');
+          if (status === 'pending' || status === 'partial') {
+            anyUnpaid = true;
+            if (!continueHref) continueHref = registrationPath(event.id);
+          }
+        }
+        if (active) {
+          setNext(primaryNextAction({ hasRegistration, anyUnpaid, continueHref }));
+        }
+      } catch {
+        if (active) setNext(primaryNextAction({ hasRegistration: false, anyUnpaid: false }));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
-    <PortalShell
-      title="My home"
-      intro="Your event registration is at the top. After payment, this page is the pass you show at the venue."
-    >
-      <MemberVenuePass />
+    <PortalShell title="My home" intro="Your venue pass and next step live here.">
+      {welcomeReady && (
+        <section className="mb-6 rounded-2xl border border-outline-variant border-l-[3px] border-l-jubilee-gold-deep bg-surface-paper px-5 py-6 sm:px-7 sm:py-7">
+          <p className="text-label-sm uppercase tracking-[0.16em] text-jubilee-gold-deep font-bold">
+            Welcome
+          </p>
+          <h2 className="text-headline-lg text-primary mt-2">Welcome, {firstName}</h2>
+          {batch != null && (
+            <p className="text-label-sm text-jubilee-gold-deep mt-3 tracking-wide">Class of {batch}</p>
+          )}
+        </section>
+      )}
+
       <MemberGate>
-        <div className="grid gap-5 md:grid-cols-3">
-          {cards.map(([icon, title, body, href]) => (
-            <article
-              key={title}
-              className="rounded-2xl border border-outline-variant bg-white p-6 shadow-sm"
+        <MemberVenuePass />
+
+        {next && (
+          <div className="mb-2">
+            <Link
+              href={next.href}
+              className="inline-flex items-center rounded-full bg-primary text-on-primary px-6 py-3 text-label-md font-bold hover:bg-primary-container transition-colors cursor-pointer"
             >
-              <span className="material-symbols-outlined text-3xl text-jubilee-gold-deep">{icon}</span>
-              <h2 className="text-headline-sm text-primary mt-4">{title}</h2>
-              <p className="text-body-sm text-on-surface-variant mt-2">{body}</p>
-              <Link className="inline-flex mt-5 text-label-md text-primary font-bold" href={href}>
-                Explore ↗
-              </Link>
-            </article>
-          ))}
-        </div>
-        <div className="mt-6 rounded-2xl bg-primary text-white p-8">
+              {next.label}
+            </Link>
+          </div>
+        )}
+
+        <HomeDestinationLanes />
+
+        <div className="mt-8 rounded-2xl bg-primary text-white p-8">
           <div className="text-label-sm uppercase tracking-widest text-secondary-fixed">
             1976–2026 · Golden Jubilee
           </div>
           <h2 className="text-headline-md mt-2">Once SFS, always SFS.</h2>
-          <p className="text-body-sm text-white/80 mt-2">
-            Reconnect with your batch, contribute a memory, or help a younger generation find their
-            way.
+          <p className="text-body-sm text-white/80 mt-2 max-w-xl">
+            Reconnect with your batch, contribute a memory, or help a younger generation find their way.
           </p>
+          <Link
+            href="/about-association"
+            className="inline-flex mt-4 text-label-sm text-secondary-fixed underline underline-offset-4"
+          >
+            About the association
+          </Link>
         </div>
       </MemberGate>
     </PortalShell>

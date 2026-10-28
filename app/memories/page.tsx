@@ -1,7 +1,70 @@
 'use client';
-import {useEffect,useState} from 'react';
+
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import MemberGate from '@/components/member-gate';
+import MemoryPhotoStrip, { type MemoryCardItem } from '@/components/memory-photo-strip';
 import PortalShell from '@/components/portal-shell';
-import {createClient} from '@/lib/supabase';
-type Memory={id:string;title:string;description:string|null;image_url:string|null;batch_label:string|null};
-export default function MemoriesPage(){const [rows,setRows]=useState<Memory[]>([]);const [message,setMessage]=useState('Loading the SFS memory archive…');useEffect(()=>{let active=true;(async()=>{try{const {data,error}=await createClient().from('alumni_memories').select('id,title,description,image_url,batch_label').eq('status','published').order('created_at',{ascending:false});if(!active)return;if(error)setMessage('Archive is not connected yet. Apply the portal migration and configure image storage.');else{setRows((data||[]) as Memory[]);setMessage(data?.length?'':'The archive is ready for school-approved photographs, batch pictures and reunion moments.')}}catch{if(active)setMessage('Archive is not configured yet.')}})();return()=>{active=false}},[]);return <PortalShell title="Our memories, kept together" eyebrow="SFS MEMORY ARCHIVE"><MemberGate>{message&&<p className="rounded-xl bg-white border border-outline-variant p-5 text-body-sm text-on-surface-variant">{message}</p>}<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{rows.map(m=><article key={m.id} className="rounded-2xl bg-white border border-outline-variant overflow-hidden">{m.image_url?<img src={m.image_url} alt={m.title} className="w-full h-56 object-cover"/>:<div className="h-56 bg-primary/5 grid place-items-center text-primary"><span className="material-symbols-outlined text-5xl">photo_library</span></div>}<div className="p-5">{m.batch_label&&<p className="text-label-sm uppercase tracking-widest text-jubilee-gold-deep">{m.batch_label}</p>}<h2 className="text-headline-sm text-primary mt-2">{m.title}</h2>{m.description&&<p className="text-body-sm text-on-surface-variant mt-2">{m.description}</p>}</div></article>)}</div></MemberGate></PortalShell>}
+
+export default function MemoriesPage() {
+  const [ownBatch, setOwnBatch] = useState<MemoryCardItem[]>([]);
+  const [allSfs, setAllSfs] = useState<MemoryCardItem[]>([]);
+  const [message, setMessage] = useState('Loading memories…');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/memories', { cache: 'no-store' });
+        if (!active) return;
+        if (!res.ok) {
+          setMessage('Could not load the archive yet.');
+          return;
+        }
+        const data = await res.json();
+        setOwnBatch(data.ownBatch || []);
+        setAllSfs(data.allSfs || []);
+        setMessage('');
+      } catch {
+        if (active) setMessage('Archive is not configured yet.');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <PortalShell
+      title="Our memories, kept together"
+      eyebrow="SFS MEMORY ARCHIVE"
+      intro="Your batch first, then all SFS — photos the committee has published."
+    >
+      <MemberGate>
+        {message && (
+          <p className="rounded-xl bg-white border border-outline-variant p-5 text-body-sm text-on-surface-variant mb-6">
+            {message}
+          </p>
+        )}
+
+        <MemoryPhotoStrip
+          label="Your batch"
+          emptyText="No memories from your batch yet."
+          items={ownBatch}
+        />
+        <MemoryPhotoStrip
+          label="All SFS"
+          emptyText="No published memories yet."
+          items={allSfs}
+        />
+
+        <p className="mt-2 text-body-sm text-on-surface-variant">
+          Want to contribute a photo?{' '}
+          <Link href="/submissions#share" className="text-primary font-bold underline underline-offset-2">
+            Share a memory on My submissions
+          </Link>
+        </p>
+      </MemberGate>
+    </PortalShell>
+  );
+}

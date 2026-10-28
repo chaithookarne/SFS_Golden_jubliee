@@ -27,10 +27,18 @@ export async function GET() {
     .in('payment_status', ['pending', 'partial']);
   if (!regs.error) unpaidRegistrations = (regs.data || []).length;
 
+  let pendingMemories = 0;
+  const mem = await admin
+    .from('alumni_memories')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+  if (!mem.error) pendingMemories = mem.count || 0;
+
   return NextResponse.json({
     pendingMembers: pendingMembers.count || 0,
     publishedEvents,
     unpaidRegistrations,
+    pendingMemories,
     catalogReady,
   });
 }

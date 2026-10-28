@@ -110,7 +110,7 @@ export default function MemberVenuePass() {
   }
   if (phase === 'empty') {
     return (
-      <section className="mb-6 rounded-2xl border border-outline-variant bg-white p-6 shadow-sm">
+      <section id="venue-pass" className="mb-6 rounded-2xl border border-outline-variant bg-white p-6 shadow-sm">
         <h2 className="text-headline-sm text-primary">No registration yet</h2>
         <p className="text-body-sm text-on-surface-variant mt-2">
           Pick an open event and register. Your pass, payment, and venue code will show up here.
@@ -123,7 +123,7 @@ export default function MemberVenuePass() {
   }
 
   return (
-    <div className="space-y-4 mb-6">
+    <div id="venue-pass" className="space-y-4 mb-6 scroll-mt-28">
       {passes.map((pass) => {
         const summary = venuePassSummary({
           ...pass.registration,

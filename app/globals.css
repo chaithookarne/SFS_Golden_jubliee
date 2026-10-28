@@ -1,76 +1,77 @@
 @import "tailwindcss";
 
+/* Bright ivory + charcoal + muted bronze (editorial product hybrid) */
 @theme {
-  --color-primary: #001628;
-  --color-primary-container: #0b2b44;
-  --color-primary-fixed: #cfe5ff;
-  --color-primary-fixed-dim: #adc9e9;
-  --color-on-primary: #ffffff;
-  --color-on-primary-container: #7793b1;
-  --color-on-primary-fixed: #001d33;
-  --color-on-primary-fixed-variant: #2d4963;
+  --color-primary: #14110f;
+  --color-primary-container: #2a2420;
+  --color-primary-fixed: #f0ebe3;
+  --color-primary-fixed-dim: #e4ddd2;
+  --color-on-primary: #faf8f4;
+  --color-on-primary-container: #cfc6ba;
+  --color-on-primary-fixed: #14110f;
+  --color-on-primary-fixed-variant: #4a433c;
 
-  --color-secondary: #735c00;
-  --color-secondary-container: #fed65b;
-  --color-secondary-fixed: #ffe088;
-  --color-secondary-fixed-dim: #e9c349;
+  --color-secondary: #8a6a3a;
+  --color-secondary-container: #efe2cc;
+  --color-secondary-fixed: #f5ebdc;
+  --color-secondary-fixed-dim: #e4d2b3;
   --color-on-secondary: #ffffff;
-  --color-on-secondary-container: #745c00;
+  --color-on-secondary-container: #4a3820;
   --color-on-secondary-fixed: #241a00;
-  --color-on-secondary-fixed-variant: #574500;
+  --color-on-secondary-fixed-variant: #5c4728;
 
-  --color-tertiary: #00152e;
-  --color-tertiary-container: #002a51;
-  --color-tertiary-fixed: #d4e3ff;
-  --color-tertiary-fixed-dim: #a4c9ff;
+  --color-tertiary: #2a2420;
+  --color-tertiary-container: #3d3530;
+  --color-tertiary-fixed: #f0ebe3;
+  --color-tertiary-fixed-dim: #e4ddd2;
   --color-on-tertiary: #ffffff;
-  --color-on-tertiary-container: #5793dd;
-  --color-on-tertiary-fixed: #001c39;
-  --color-on-tertiary-fixed-variant: #004884;
+  --color-on-tertiary-container: #cfc6ba;
+  --color-on-tertiary-fixed: #14110f;
+  --color-on-tertiary-fixed-variant: #4a433c;
 
-  --color-surface: #f7f9ff;
-  --color-surface-dim: #d2dbe6;
-  --color-surface-bright: #f7f9ff;
+  --color-surface: #faf8f4;
+  --color-surface-dim: #e4ddd2;
+  --color-surface-bright: #faf8f4;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #ecf4ff;
-  --color-surface-container: #e6effa;
-  --color-surface-container-high: #e0e9f4;
-  --color-surface-container-highest: #dae3ee;
-  --color-surface-variant: #dae3ee;
+  --color-surface-container-low: #f5f2ec;
+  --color-surface-container: #f0ebe3;
+  --color-surface-container-high: #ebe6de;
+  --color-surface-container-highest: #e4ddd2;
+  --color-surface-variant: #ebe6de;
   --color-surface-paper: #ffffff;
-  --color-surface-ivory: #faf9f5;
-  --color-surface-tint: #45617c;
+  --color-surface-ivory: #faf8f4;
+  --color-surface-tint: #8a6a3a;
 
-  --color-on-surface: #131d24;
-  --color-on-surface-variant: #43474d;
-  --color-inverse-surface: #28313a;
-  --color-inverse-on-surface: #e8f2fd;
-  --color-inverse-primary: #adc9e9;
+  --color-on-surface: #14110f;
+  --color-on-surface-variant: #6b635a;
+  --color-inverse-surface: #2a2420;
+  --color-inverse-on-surface: #f5f2ec;
+  --color-inverse-primary: #e4d2b3;
 
-  --color-background: #f7f9ff;
-  --color-on-background: #131d24;
+  --color-background: #faf8f4;
+  --color-on-background: #14110f;
 
-  --color-outline: #73777e;
-  --color-outline-variant: #c3c7ce;
+  --color-outline: #8a837a;
+  --color-outline-variant: #e8e0d4;
 
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
   --color-error-container: #ffdad6;
   --color-on-error-container: #93000a;
 
-  --color-jubilee-amber: #b8860b;
-  --color-jubilee-gold-deep: #996515;
-  --color-jubilee-gold-light: #f9e8a2;
-  --color-academic-teal: #00a896;
-  --color-navy-subtle: #163e63;
+  --color-jubilee-amber: #9a7340;
+  --color-jubilee-gold-deep: #8a6a3a;
+  --color-jubilee-gold-light: #efe2cc;
+  --color-academic-teal: #3d6b5c;
+  --color-navy-subtle: #57534e;
 
   --font-serif: var(--font-eb-garamond), Georgia, serif;
   --font-sans: var(--font-manrope), system-ui, sans-serif;
 }
 
 :root {
-  --background: #f7f9ff;
-  --foreground: #131d24;
+  --background: #faf8f4;
+  --foreground: #14110f;
 }
 
 body {
@@ -81,20 +82,20 @@ body {
   padding: 0;
 }
 
-/* Custom Typography Utility Classes matching Stitch Design */
+/* T3: keep EB Garamond + Manrope; enlarge titles, open body leading */
 .font-display-xl,
 .text-display-xl {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 56px;
-  line-height: 64px;
+  font-size: 60px;
+  line-height: 68px;
   letter-spacing: -0.02em;
   font-weight: 600;
 }
 
 .text-display-xl-mobile {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 38px;
-  line-height: 44px;
+  font-size: 40px;
+  line-height: 46px;
   letter-spacing: -0.01em;
   font-weight: 600;
 }
@@ -102,40 +103,41 @@ body {
 .font-headline-lg,
 .text-headline-lg {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 40px;
-  line-height: 48px;
-  letter-spacing: -0.01em;
+  font-size: 44px;
+  line-height: 52px;
+  letter-spacing: -0.015em;
   font-weight: 600;
 }
 
 .text-headline-lg-mobile {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 30px;
-  line-height: 36px;
+  font-size: 32px;
+  line-height: 38px;
   font-weight: 600;
 }
 
 .font-headline-md,
 .text-headline-md {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 28px;
-  line-height: 34px;
-  font-weight: 500;
+  font-size: 32px;
+  line-height: 38px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
 }
 
 .font-headline-sm,
 .text-headline-sm {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 22px;
-  line-height: 28px;
+  font-size: 24px;
+  line-height: 30px;
   font-weight: 600;
 }
 
 .font-numeral-jubilee,
 .text-numeral-jubilee {
   font-family: var(--font-eb-garamond), Georgia, serif;
-  font-size: 64px;
-  line-height: 64px;
+  font-size: 68px;
+  line-height: 68px;
   letter-spacing: 0.02em;
   font-weight: 700;
 }
@@ -144,14 +146,14 @@ body {
 .text-body-lg {
   font-family: var(--font-manrope), system-ui, sans-serif;
   font-size: 18px;
-  line-height: 28px;
+  line-height: 30px;
   font-weight: 400;
 }
 
 .font-body-md,
 .text-body-md {
   font-family: var(--font-manrope), system-ui, sans-serif;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 24px;
   font-weight: 400;
 }
@@ -160,7 +162,7 @@ body {
 .text-body-sm {
   font-family: var(--font-manrope), system-ui, sans-serif;
   font-size: 14px;
-  line-height: 20px;
+  line-height: 22px;
   font-weight: 400;
 }
 
@@ -178,28 +180,27 @@ body {
   font-family: var(--font-manrope), system-ui, sans-serif;
   font-size: 11px;
   line-height: 14px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   font-weight: 600;
 }
 
 @media (min-width: 1024px) {
   .lg\:text-display-xl {
-    font-size: 56px !important;
-    line-height: 64px !important;
+    font-size: 60px !important;
+    line-height: 68px !important;
   }
 
   .lg\:text-numeral-jubilee {
-    font-size: 64px !important;
-    line-height: 64px !important;
+    font-size: 68px !important;
+    line-height: 68px !important;
   }
 
   .lg\:text-body-lg {
     font-size: 18px !important;
-    line-height: 28px !important;
+    line-height: 30px !important;
   }
 }
 
-/* Material Symbols Outlined */
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined', sans-serif;
   font-weight: normal;

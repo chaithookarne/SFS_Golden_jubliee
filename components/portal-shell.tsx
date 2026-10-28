@@ -5,26 +5,31 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 
 const baseLinks: [string, string][] = [
-  ['/member', 'My home'],
-  ['/directory', 'Alumni directory'],
+  ['/member', 'Home'],
+  ['/directory', 'People'],
   ['/events', 'Events'],
   ['/stories', 'Stories'],
   ['/memories', 'Memories'],
-  ['/about-association', 'Association'],
+  ['/submissions', 'My submissions'],
 ];
+
+function linkActive(path: string, href: string) {
+  if (href === '/admin') return path === '/admin' || path.startsWith('/admin/');
+  return path === href;
+}
 
 export default function PortalShell({
   children,
   title,
   eyebrow = 'SFS ALUMNI COMMUNITY',
-  intro = 'Reconnect with the people, places and memories that make St. Francis de Sales part of your story.',
+  intro,
 }: {
   children: ReactNode;
   title: string;
   eyebrow?: string;
   intro?: string;
 }) {
-  const path = usePathname();
+  const path = usePathname() || '';
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -47,34 +52,50 @@ export default function PortalShell({
   const links = isAdmin ? [...baseLinks, ['/admin', 'Admin'] as [string, string]] : baseLinks;
 
   return (
-    <main className="min-h-screen bg-surface pt-28 pb-16">
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-12">
-        <div className="mb-8">
-          <div className="text-label-sm uppercase tracking-[.18em] text-jubilee-gold-deep font-bold mb-3">
-            {eyebrow}
+    <main className="min-h-screen bg-surface pt-24 pb-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10">
+        <div className="flex gap-4 sm:gap-6 lg:gap-10 items-start">
+          <aside className="w-[7.25rem] sm:w-44 lg:w-52 shrink-0 sticky top-28 self-start rounded-2xl border border-outline-variant bg-surface-paper p-2.5 sm:p-4">
+            <p className="text-xs sm:text-sm font-extrabold text-primary tracking-tight px-1.5 sm:px-1 leading-tight">
+              SFS Alumni
+            </p>
+            <p className="text-[9px] sm:text-[10px] uppercase tracking-[0.12em] text-jubilee-gold-deep font-bold px-1.5 sm:px-1 mb-2 sm:mb-3">
+              Golden Jubilee
+            </p>
+            <nav aria-label="Alumni portal" className="flex flex-col gap-0.5">
+              {links.map(([href, label]) => {
+                const active = linkActive(path, href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`rounded-lg px-2 sm:px-3 py-2 sm:py-2.5 text-[12px] sm:text-sm font-medium leading-snug transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-primary text-on-primary'
+                        : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                    }`}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </aside>
+
+          <div className="min-w-0 flex-1">
+            <div className="mb-5 lg:mb-6">
+              <div className="text-label-sm uppercase tracking-[0.16em] text-jubilee-gold-deep font-bold mb-2">
+                {eyebrow}
+              </div>
+              <h1 className="text-headline-lg text-primary leading-tight">{title}</h1>
+              {intro ? (
+                <p className="text-body-md text-on-surface-variant mt-2 max-w-2xl">{intro}</p>
+              ) : null}
+            </div>
+
+            {children}
           </div>
-          <h1 className="text-headline-lg md:text-5xl text-primary leading-tight">{title}</h1>
-          <p className="text-body-md text-on-surface-variant mt-3 max-w-2xl">{intro}</p>
         </div>
-        <nav
-          aria-label="Alumni portal"
-          className="flex gap-2 overflow-x-auto pb-3 mb-7 border-b border-outline-variant"
-        >
-          {links.map(([href, label]) => (
-            <Link
-              key={href}
-              href={href}
-              className={`whitespace-nowrap rounded-full px-4 py-2 text-label-sm ${
-                path === href
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-container text-primary hover:bg-secondary-container'
-              }`}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
-        {children}
       </div>
     </main>
   );
