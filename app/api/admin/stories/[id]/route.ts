@@ -40,32 +40,20 @@ export async function PATCH(
         : null;
 
     const admin = createAdminClient();
-    const patchBase = {
+    const payload = {
       status,
+      review_note: status === 'rejected' ? review_note : null,
       reviewed_at: new Date().toISOString(),
       reviewed_by: me.id,
     };
-    // review_note lands once 20261028_alumni_stories_accounts.sql is applied.
-    const patchWithNote = {
-      ...patchBase,
-      review_note: status === 'rejected' ? review_note : null,
-    };
 
-    async function applyPatch(payload: Record<string, unknown>) {
-      return admin
-        .from('alumni_stories')
-        .update(payload)
-        .eq('id', id)
-        .eq('status', 'pending')
-        .select('id')
-        .maybeSingle();
-    }
-
-    let { data, error } = await applyPatch(patchWithNote);
-
-    if (error && /review_note/i.test(error.message || '')) {
-      ({ data, error } = await applyPatch(patchBase));
-    }
+    let { data, error } = await admin
+      .from('alumni_stories')
+      .update(payload)
+      .eq('id', id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle();
 
     if (isLegacyUsersFkError(error)) {
       try {
@@ -74,10 +62,13 @@ export async function PATCH(
         console.error('admin stories reviewer bridge', bridgeErr);
         return NextResponse.json({ error: 'Could not update story' }, { status: 500 });
       }
-      ({ data, error } = await applyPatch(patchWithNote));
-      if (error && /review_note/i.test(error.message || '')) {
-        ({ data, error } = await applyPatch(patchBase));
-      }
+      ({ data, error } = await admin
+        .from('alumni_stories')
+        .update(payload)
+        .eq('id', id)
+        .eq('status', 'pending')
+        .select('id')
+        .maybeSingle());
     }
 
     if (error) {

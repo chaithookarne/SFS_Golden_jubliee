@@ -13,21 +13,11 @@ export async function GET() {
     }
 
     const admin = createAdminClient();
-    let { data, error } = await admin
+    const { data, error } = await admin
       .from('alumni_stories')
       .select('id,title,body,status,review_note,created_at')
       .eq('author_id', me.id)
       .order('created_at', { ascending: false });
-
-    // review_note column arrives with 20261028_alumni_stories_accounts.sql
-    if (error && /review_note/i.test(error.message || '')) {
-      ({ data, error } = await admin
-        .from('alumni_stories')
-        .select('id,title,body,status,created_at')
-        .eq('author_id', me.id)
-        .order('created_at', { ascending: false }));
-      data = (data || []).map((row) => ({ ...row, review_note: null }));
-    }
 
     if (error) {
       console.error('stories mine', error);

@@ -18,20 +18,11 @@ export async function GET(request: Request) {
     }
 
     const admin = createAdminClient();
-    let { data, error } = await admin
+    const { data, error } = await admin
       .from('alumni_stories')
       .select('id,title,body,status,review_note,created_at,author_id,reviewed_at')
       .eq('status', statusParam)
       .order('created_at', { ascending: false });
-
-    if (error && /review_note/i.test(error.message || '')) {
-      ({ data, error } = await admin
-        .from('alumni_stories')
-        .select('id,title,body,status,created_at,author_id,reviewed_at')
-        .eq('status', statusParam)
-        .order('created_at', { ascending: false }));
-      data = (data || []).map((row) => ({ ...row, review_note: null }));
-    }
 
     if (error) {
       console.error('admin stories', error);
