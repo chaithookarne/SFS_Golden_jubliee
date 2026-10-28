@@ -100,6 +100,17 @@ export default function MemberPage() {
 
         <HomeDestinationLanes />
 
+        <p className="mt-6 text-body-sm text-on-surface-variant">
+          <Link
+            href="/reset-password"
+            className="text-primary font-bold underline underline-offset-2"
+          >
+            Change password
+          </Link>
+          {' — '}
+          we email you a secure one-hour link.
+        </p>
+
         <div className="mt-8 rounded-2xl bg-primary text-white p-8">
           <div className="text-label-sm uppercase tracking-widest text-secondary-fixed">
             1976–2026 · Golden Jubilee
